@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="CheckNam - ระบบเตือนภัยน้ำท่วมและเฝ้าระวังไฟฟ้ารั่ว GIS แบบ Real-time">
+
+  <!-- Viewport for Mobile & iOS -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <!-- iOS PWA / Web App Meta Tags -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CheckNam">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="icons/Icon-512.png">
+
+  <!-- Theme Color -->
+  <meta name="theme-color" content="#0284C7">
+  <meta name="msapplication-TileColor" content="#0284C7">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>CheckNam - ระบบเตือนภัยน้ำท่วม & ไฟฟ้ารั่ว GIS</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #0F172A;
+      color: #FFFFFF;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      width: 100vw;
+    }
+    #loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      transition: opacity 0.5s ease-out;
+    }
+    .logo-pulse {
+      width: 110px;
+      height: 110px;
+      border-radius: 26px;
+      box-shadow: 0 0 35px rgba(2, 132, 199, 0.45);
+      animation: pulse 2s infinite ease-in-out;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.96); box-shadow: 0 0 20px rgba(2, 132, 199, 0.3); }
+      50% { transform: scale(1.04); box-shadow: 0 0 45px rgba(2, 132, 199, 0.65); }
+      100% { transform: scale(0.96); box-shadow: 0 0 20px rgba(2, 132, 199, 0.3); }
+    }
+    .loading-title {
+      margin-top: 24px;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #38BDF8;
+    }
+    .loading-sub {
+      margin-top: 6px;
+      font-size: 13px;
+      color: #94A3B8;
+    }
+    .spinner {
+      margin-top: 22px;
+      width: 32px;
+      height: 32px;
+      border: 3.5px solid rgba(56, 189, 248, 0.2);
+      border-radius: 50%;
+      border-top-color: #38BDF8;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+
+  <script>
+    // Web & iOS Safari Notification System Helper
+    window.requestWebNotificationPermission = async function() {
+      if (!("Notification" in window)) return "unsupported";
+      try {
+        const permission = await Notification.requestPermission();
+        return permission;
+      } catch (e) {
+        return "denied";
+      }
+    };
+
+    window.showWebNotification = function(title, body, iconUrl) {
+      if (!("Notification" in window)) return false;
+      if (Notification.permission === "granted") {
+        try {
+          const notif = new Notification(title, {
+            body: body,
+            icon: iconUrl || "icons/Icon-192.png",
+            badge: "favicon.png",
+            vibrate: [200, 100, 200, 100, 400]
+          });
+          notif.onclick = function() {
+            window.focus();
+            this.close();
+          };
+          return true;
+        } catch (e) {
+          console.warn("Direct Notification constructor failed, attempting service worker:", e);
+        }
+      }
+      return false;
+    };
+
+    // Web Audio Siren Synthesizer (Works 100% on iOS Safari & Desktop Web)
+    let audioCtx = null;
+    let sirenOsc = null;
+    let sirenMod = null;
+    let sirenGain = null;
+
+    window.playWebSirenSound = function(shouldPlay) {
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+
+        if (shouldPlay) {
+          if (!audioCtx) audioCtx = new AudioContext();
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+          if (sirenOsc) return; // Already playing
+
+          sirenOsc = audioCtx.createOscillator();
+          sirenMod = audioCtx.createOscillator();
+          const modGain = audioCtx.createGain();
+          sirenGain = audioCtx.createGain();
+
+          sirenOsc.type = 'sawtooth';
+          sirenOsc.frequency.setValueAtTime(800, audioCtx.currentTime);
+
+          sirenMod.type = 'sine';
+          sirenMod.frequency.setValueAtTime(0.8, audioCtx.currentTime); // 0.8 Hz sweep
+
+          modGain.gain.setValueAtTime(300, audioCtx.currentTime); // +/- 300Hz variation
+          sirenMod.connect(modGain);
+          modGain.connect(sirenOsc.frequency);
+
+          sirenGain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+          sirenOsc.connect(sirenGain);
+          sirenGain.connect(audioCtx.destination);
+
+          sirenOsc.start();
+          sirenMod.start();
+        } else {
+          if (sirenOsc) {
+            sirenOsc.stop();
+            sirenMod.stop();
+            sirenOsc.disconnect();
+            sirenMod.disconnect();
+            sirenOsc = null;
+            sirenMod = null;
+          }
+        }
+      } catch (err) {
+        console.warn("Web siren audio error:", err);
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="loading-container">
+    <img src="icons/Icon-192.png" alt="CheckNam Logo" class="logo-pulse" />
+    <div class="loading-title">CheckNam</div>
+    <div class="loading-sub">ระบบเตือนภัยน้ำท่วมและเฝ้าระวังไฟฟ้ารั่ว GIS</div>
+    <div class="spinner"></div>
+  </div>
+
+  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    // Remove loading container once Flutter takes over
+    window.addEventListener('flutter-first-frame', function() {
+      const loader = document.getElementById('loading-container');
+      if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(() => loader.remove(), 500);
+      }
+    });
+  </script>
+</body>
+</html>

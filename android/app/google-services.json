@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "70556919679",
+    "firebase_url": "https://water-flood-iot-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "water-flood-iot",
+    "storage_bucket": "water-flood-iot.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:70556919679:android:8a2e16b0e09de5c0965c4a",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_water_flood"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAq7TRlrs0TmJ-zoULF2FHchif77rsmEXg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

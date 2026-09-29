@@ -1,0 +1,35 @@
+{
+    "name": "CheckNam - ระบบเตือนภัยน้ำท่วมและเฝ้าระวังไฟฟ้ารั่ว GIS",
+    "short_name": "CheckNam",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#0F172A",
+    "theme_color": "#0284C7",
+    "description": "ระบบตรวจจับและเตือนภัยน้ำท่วม เฝ้าระวังกระแสไฟฟ้ารั่วไหลแบบ Real-time พร้อมแผนที่ GIS",
+    "orientation": "portrait",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
