@@ -97,26 +97,7 @@ class SettingsScreen extends StatelessWidget {
             ),
             
 
-            const SizedBox(height: 24),
-            const Text('การตั้งค่าขั้นสูง (Advanced)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.grey)),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                children: [
-                  _buildActionItem(
-                    context,
-                    title: 'เบอร์ติดต่อฉุกเฉิน (SOS)',
-                    subtitle: settings.emergencyNumber,
-                    icon: Icons.phone_in_talk,
-                    onTap: () => _showEmergencyNumberDialog(context, settings),
-                  ),
-                ],
-              ),
-            ),
+
             
             const SizedBox(height: 24),
             const Text('การแสดงผลและการแจ้งเตือน', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.grey)),
@@ -139,6 +120,59 @@ class SettingsScreen extends StatelessWidget {
                   _buildToggleItem('โหมดกลางคืน (Dark Mode)', Icons.dark_mode, theme.isDarkMode, (v) {
                     context.read<ThemeProvider>().toggleTheme();
                   }),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text('ระบบเตือนภัยเมื่อเข้าใกล้จุดเสี่ยง (Proximity Alert)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.grey)),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                children: [
+                  _buildToggleItem('เตือนเมื่อเข้าใกล้จุดเสี่ยงน้ำท่วม', Icons.near_me_rounded, settings.proximityAlertEnabled, (v) {
+                    context.read<SettingsProvider>().toggleProximityAlert(v);
+                  }),
+                  if (settings.proximityAlertEnabled) ...[
+                    const Divider(height: 1, color: Colors.black26),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.radar_rounded, color: Colors.blueAccent),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('รัศมีเริ่มแจ้งเตือน', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                                Text('ระยะห่างที่จะเริ่มเด้งหน้าต่างเตือนภัย', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                              ],
+                            ),
+                          ),
+                          DropdownButton<double>(
+                            value: settings.proximityAlertRadiusMeters,
+                            underline: const SizedBox(),
+                            borderRadius: BorderRadius.circular(12),
+                            items: const [
+                              DropdownMenuItem(value: 300.0, child: Text('300 ม. (คนเดินเท้า)', style: TextStyle(fontSize: 13))),
+                              DropdownMenuItem(value: 500.0, child: Text('500 ม. (มาตรฐาน)', style: TextStyle(fontSize: 13))),
+                              DropdownMenuItem(value: 1000.0, child: Text('1 กม. (ยานพาหนะ)', style: TextStyle(fontSize: 13))),
+                              DropdownMenuItem(value: 2000.0, child: Text('2 กม. (เตือนล่วงหน้า)', style: TextStyle(fontSize: 13))),
+                            ],
+                            onChanged: (val) {
+                              if (val != null) {
+                                context.read<SettingsProvider>().updateProximityRadius(val);
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -193,54 +227,11 @@ class SettingsScreen extends StatelessWidget {
       secondary: Icon(icon, color: Colors.grey),
       title: Text(title),
       value: value,
-      activeColor: Colors.white,
+      activeThumbColor: Colors.white,
       activeTrackColor: Colors.green,
       inactiveThumbColor: Colors.grey,
       inactiveTrackColor: Colors.grey[800],
       onChanged: onChanged,
-    );
-  }
-
-  Widget _buildActionItem(BuildContext context, {required String title, required String subtitle, required IconData icon, Color iconColor = Colors.grey, required VoidCallback onTap}) {
-    return ListTile(
-      leading: Icon(icon, color: iconColor),
-      title: Text(title),
-      subtitle: Text(subtitle, style: const TextStyle(color: Colors.blue)),
-      trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-      onTap: onTap,
-    );
-  }
-
-  void _showEmergencyNumberDialog(BuildContext context, SettingsProvider settings) {
-    final TextEditingController controller = TextEditingController(text: settings.emergencyNumber);
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('ตั้งค่าเบอร์ฉุกเฉิน (SOS)'),
-          content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(
-              labelText: 'หมายเลขโทรศัพท์',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                context.read<SettingsProvider>().updateEmergencyNumber(controller.text);
-                Navigator.pop(context);
-              },
-              child: const Text('บันทึก'),
-            ),
-          ],
-        );
-      }
     );
   }
 }

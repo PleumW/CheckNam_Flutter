@@ -23,6 +23,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
   
   late Stream<DatabaseEvent> _devicesStream;
   late Stream<DatabaseEvent> _reportsStream;
+  late Stream<DatabaseEvent> _postsStream;
   late AnimationController _pulseController;
 
   bool _isSatellite = false;
@@ -40,6 +41,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
 
     _devicesStream = _dbRef.child('devices').onValue;
     _reportsStream = _dbRef.child('admin_reports').onValue;
+    _postsStream = _dbRef.child('community_posts').onValue;
     _fetchRadarData();
   }
 
@@ -116,27 +118,33 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
               child: const Icon(Icons.water_drop_rounded, color: Colors.white, size: 17),
             ),
             const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'CheckNam',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: -0.3,
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'CheckNam',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.3,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                Text(
-                  'เช็คน้ำ เฝ้าระวังภัย',
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
+                  Text(
+                    'เช็คน้ำ เฝ้าระวังภัย',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -199,6 +207,20 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
           return StreamBuilder<DatabaseEvent>(
             stream: _reportsStream,
             builder: (context, reportSnapshot) {
+              return StreamBuilder<DatabaseEvent>(
+                stream: _postsStream,
+                builder: (context, postsSnapshot) {
+                  final Set<String> activePostKeys = {};
+                  if (postsSnapshot.hasData && postsSnapshot.data?.snapshot.value != null) {
+                    final postsVal = postsSnapshot.data!.snapshot.value;
+                    if (postsVal is Map) {
+                      postsVal.forEach((key, value) {
+                        if (key != null) {
+                          activePostKeys.add(key.toString());
+                        }
+                      });
+                    }
+                  }
               
               List<Marker> markers = [];
               List<CircleMarker> circles = [];
@@ -208,8 +230,8 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                 markers.add(
                   Marker(
                     point: LatLng(locationProvider.currentPosition!.latitude, locationProvider.currentPosition!.longitude),
-                    width: 100,
-                    height: 80,
+                    width: 110,
+                    height: 70,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -221,9 +243,14 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                             border: Border.all(color: Colors.blue, width: 1),
                             boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4)],
                           ),
-                          child: const Text('พิกัดของคุณ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue)),
+                          child: const Text(
+                            'พิกัดของคุณ',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        const Icon(Icons.person_pin_circle, color: Colors.blue, size: 40),
+                        const Icon(Icons.person_pin_circle, color: Colors.blue, size: 36),
                       ],
                     ),
                   ),
@@ -238,13 +265,12 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                 final isLeakage = device.isElectricalLeakage;
                 final double waterLevel = device.waterLevel;
                 final double rainfall = device.rainfall;
-                final bool isOffline = false;
-                Color pinColor = Colors.green;
-                if (isLeakage || waterLevel >= 60) {
-                  pinColor = Colors.red;
-                } else if (waterLevel >= 20 || rainfall >= 30) {
-                  pinColor = Colors.orange;
-                }
+                final bool isOffline = !device.isDeviceOnline;
+                Color pinColor = isOffline
+                    ? Colors.grey
+                    : (isLeakage || waterLevel >= 60
+                        ? Colors.red
+                        : (waterLevel >= 20 || rainfall >= 30 ? Colors.orange : Colors.green));
 
                 // 1. Flood Risk & Electrical Hazard Buffer Zones (Circle Layer)
                 if (!isOffline) {
@@ -287,8 +313,8 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                 markers.add(
                   Marker(
                     point: LatLng(lat, lng),
-                    width: isLeakage ? 140 : 120,
-                    height: 90,
+                    width: 145,
+                    height: 75,
                     child: GestureDetector(
                       onTap: () {
                         _showDeviceInfo(context, device.id, device.name, waterLevel, isLeakage, isOffline, lat, lng);
@@ -307,8 +333,16 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                 final oneDayMs = 24 * 60 * 60 * 1000;
 
                 reportData.forEach((key, value) {
+                  if (value is! Map) return;
+
                   final timestamp = value['timestamp'] ?? 0;
                   if (now - timestamp > oneDayMs) {
+                    return;
+                  }
+
+                  // ตรวจสอบว่าหากเป็นรายงานที่ผูกกับโพสต์ชุมชน และโพสต์นั้นถูกลบไปแล้ว ให้ตัดสัญลักษณ์เตือนภัยออกจากแผนที่ทันที
+                  final String? postId = value['postId']?.toString();
+                  if (postId != null && postId.isNotEmpty && !activePostKeys.contains(postId)) {
                     return;
                   }
 
@@ -406,11 +440,14 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     ),
                 ],
               );
-            }
+                },
+              );
+            },
           );
-        }
+        },
       ),
       floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           FloatingActionButton(
@@ -473,7 +510,8 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          constraints: const BoxConstraints(maxWidth: 145),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: const Color(0xEE1E293B), // Dark slate glass container
             borderRadius: BorderRadius.circular(16),
@@ -507,39 +545,46 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                   ],
                 ),
               ),
-              const SizedBox(width: 6),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (isLeakage) ...[
-                        const Icon(Icons.bolt_rounded, color: Colors.amber, size: 13),
-                        const SizedBox(width: 2),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isLeakage) ...[
+                          const Icon(Icons.bolt_rounded, color: Colors.amber, size: 12),
+                          const SizedBox(width: 2),
+                        ],
+                        Flexible(
+                          child: Text(
+                            device.name,
+                            style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                       ],
-                      Text(
-                        device.name,
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                  Text(
-                    '${waterLevel.toStringAsFixed(1)} ซม.',
-                    style: TextStyle(
-                      fontSize: 10, 
-                      color: Colors.white.withValues(alpha: 0.85), 
-                      fontWeight: FontWeight.w500,
                     ),
-                  ),
-                ],
+                    Text(
+                      device.isDeviceOnline ? '${waterLevel.toStringAsFixed(1)} ซม.' : 'ออฟไลน์',
+                      style: TextStyle(
+                        fontSize: 9.5, 
+                        color: Colors.white.withValues(alpha: 0.85), 
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
         ),
-        Icon(Icons.arrow_drop_down, color: pinColor, size: 24),
+        Icon(Icons.arrow_drop_down, color: pinColor, size: 20),
       ],
     );
 
@@ -632,7 +677,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
               targetDevice.name,
               targetDevice.waterLevel,
               targetDevice.isElectricalLeakage,
-              false,
+              !targetDevice.isDeviceOnline,
               targetDevice.lat,
               targetDevice.lng,
             );
@@ -681,13 +726,17 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                             },
                           ),
                           const SizedBox(width: 6),
-                          Text(
-                            statusTitle,
-                            style: TextStyle(
-                              color: accentColor,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.2,
+                          Flexible(
+                            child: Text(
+                              statusTitle,
+                              style: TextStyle(
+                                color: accentColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.2,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -700,11 +749,13 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
@@ -757,138 +808,158 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
             ],
           ),
           padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Minimal Drag Handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: SafeArea(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 2),
-                        Text('สถานีตรวจวัด ID: $deviceId', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: isOffline 
-                          ? Colors.grey.withValues(alpha: 0.15) 
-                          : (isLeakage ? Colors.red.withValues(alpha: 0.15) : Colors.green.withValues(alpha: 0.15)),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: isOffline ? Colors.grey : (isLeakage ? Colors.red : Colors.green),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          isOffline ? 'ออฟไลน์' : (isLeakage ? 'รั่วไหล!' : 'ออนไลน์'),
-                          style: TextStyle(
-                            color: isOffline ? Colors.grey : (isLeakage ? Colors.red : Colors.green),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildInfoCard(
-                      context,
-                      title: 'ระดับน้ำ',
-                      value: '${waterLevel.toStringAsFixed(1)} ซม.',
-                      icon: Icons.water_drop_rounded,
-                      color: waterLevel >= 60 ? Colors.red : (waterLevel >= 20 ? Colors.orange : Colors.blue),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildInfoCard(
-                      context,
-                      title: 'ระบบไฟฟ้า',
-                      value: isLeakage ? 'ไฟฟ้ารั่ว!' : 'ปกติ',
-                      icon: Icons.bolt_rounded,
-                      color: isLeakage ? Colors.amber : Colors.green,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildInfoCard(
-                      context,
-                      title: 'ระยะห่าง',
-                      value: distText,
-                      icon: Icons.near_me_rounded,
-                      color: Colors.purple,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        side: BorderSide(color: Colors.grey.withValues(alpha: 0.3)),
+                  // Minimal Drag Handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('ปิด', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        backgroundColor: Colors.blueAccent,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'สถานีตรวจวัด ID: $deviceId',
+                              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
                       ),
-                      icon: const Icon(Icons.analytics_rounded, size: 18),
-                      label: const Text('ดูแดชบอร์ด', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                      onPressed: () {
-                        context.read<SensorProvider>().selectDevice(deviceId);
-                        Navigator.pop(context);
-                        Navigator.pushReplacementNamed(context, '/dashboard');
-                      },
-                    ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: isOffline 
+                              ? Colors.grey.withValues(alpha: 0.15) 
+                              : (isLeakage ? Colors.red.withValues(alpha: 0.15) : Colors.green.withValues(alpha: 0.15)),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: isOffline ? Colors.grey : (isLeakage ? Colors.red : Colors.green),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              isOffline ? 'ออฟไลน์' : (isLeakage ? 'รั่วไหล!' : 'ออนไลน์'),
+                              style: TextStyle(
+                                color: isOffline ? Colors.grey : (isLeakage ? Colors.red : Colors.green),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildInfoCard(
+                          context,
+                          title: 'ระดับน้ำ',
+                          value: '${waterLevel.toStringAsFixed(1)} ซม.',
+                          icon: Icons.water_drop_rounded,
+                          color: waterLevel >= 60 ? Colors.red : (waterLevel >= 20 ? Colors.orange : Colors.blue),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Builder(
+                          builder: (context) {
+                            final hasCurrent = context.read<SensorProvider>().devices[deviceId]?.hasCurrentSensor ?? false;
+                            return _buildInfoCard(
+                              context,
+                              title: 'ระบบไฟฟ้า',
+                              value: !hasCurrent ? 'ไม่ได้ติดตั้ง' : (isLeakage ? 'ไฟฟ้ารั่ว!' : 'ปกติ'),
+                              icon: Icons.bolt_rounded,
+                              color: !hasCurrent ? Colors.grey : (isLeakage ? Colors.amber : Colors.green),
+                            );
+                          }
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildInfoCard(
+                          context,
+                          title: 'ระยะห่าง',
+                          value: distText,
+                          icon: Icons.near_me_rounded,
+                          color: Colors.purple,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            side: BorderSide(color: Colors.grey.withValues(alpha: 0.3)),
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('ปิด', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            backgroundColor: Colors.blueAccent,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                          ),
+                          icon: const Icon(Icons.analytics_rounded, size: 18),
+                          label: const Text('ดูแดชบอร์ด', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                          onPressed: () {
+                            context.read<SensorProvider>().selectDevice(deviceId);
+                            Navigator.pop(context);
+                            Navigator.pushReplacementNamed(context, '/dashboard');
+                          },
+                        ),
+                      ),
+                    ],
+                  )
                 ],
-              )
-            ],
+              ),
+            ),
           ),
         );
       }
@@ -897,7 +968,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
 
   Widget _buildInfoCard(BuildContext context, {required String title, required String value, required IconData icon, required Color color}) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
@@ -906,13 +977,19 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 8),
-          Text(title, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 6),
+          Text(
+            title,
+            style: const TextStyle(color: Colors.grey, fontSize: 10.5),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           const SizedBox(height: 2),
           Text(
             value,
-            style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold),
+            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold),
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         ],
@@ -923,105 +1000,144 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
   void _showReportInfo(BuildContext context, String reason, String reporter) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('รายงานแจ้งเหตุ', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange)),
-              const SizedBox(height: 16),
-              Text('ผู้แจ้ง: $reporter'),
-              Text('รายละเอียด: $reason'),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('ปิด'),
-                ),
-              )
-            ],
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('รายงานแจ้งเหตุ', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange)),
+                const SizedBox(height: 16),
+                Text('ผู้แจ้ง: $reporter'),
+                Text('รายละเอียด: $reason'),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('ปิด'),
+                  ),
+                )
+              ],
+            ),
           ),
         );
       }
     );
   }
 
+  Future<void> _openGoogleMapsNavigation(double lat, double lng) async {
+    final Uri googleMapsAppUrl = Uri.parse('google.navigation:q=$lat,$lng&mode=d');
+    final Uri googleMapsWebUrl = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
+    try {
+      if (await canLaunchUrl(googleMapsAppUrl)) {
+        await launchUrl(googleMapsAppUrl);
+      } else if (await canLaunchUrl(googleMapsWebUrl)) {
+        await launchUrl(googleMapsWebUrl, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(googleMapsWebUrl, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint('Could not open Google Maps: $e');
+      try {
+        await launchUrl(googleMapsWebUrl, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
+  }
+
   void _showSosInfo(BuildContext context, SosRequest sos) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.redAccent.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.sos_rounded, color: Colors.redAccent, size: 24),
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text('ขอความช่วยเหลือฉุกเฉิน (SOS)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.redAccent)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text('ผู้ประสบภัย: ${sos.userName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-              const SizedBox(height: 4),
-              Text('เหตุฉุกเฉิน: ${sos.situation}', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600, fontSize: 13)),
-              if (sos.note.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text('รายละเอียด: ${sos.note}', style: const TextStyle(fontSize: 13)),
-              ],
-              const SizedBox(height: 4),
-              Text('พิกัด: ${sos.lat.toStringAsFixed(6)}, ${sos.lng.toStringAsFixed(6)}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
                       ),
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('ปิด'),
+                      child: const Icon(Icons.sos_rounded, color: Colors.redAccent, size: 24),
                     ),
-                  ),
-                  if (sos.phoneNumber.isNotEmpty) ...[
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text('ขอความช่วยเหลือฉุกเฉิน (SOS)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text('ผู้ประสบภัย: ${sos.userName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const SizedBox(height: 4),
+                Text('เหตุฉุกเฉิน: ${sos.situation}', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600, fontSize: 13)),
+                if (sos.note.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text('รายละเอียด: ${sos.note}', style: const TextStyle(fontSize: 12)),
+                ],
+                const SizedBox(height: 4),
+                Text('พิกัด: ${sos.lat.toStringAsFixed(6)}, ${sos.lng.toStringAsFixed(6)}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('ปิด'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
+                          backgroundColor: Colors.blueAccent,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),
-                        icon: const Icon(Icons.phone, size: 18),
-                        label: const Text('โทรติดต่อ', style: TextStyle(fontWeight: FontWeight.bold)),
-                        onPressed: () async {
-                          final uri = Uri.parse('tel:${sos.phoneNumber}');
-                          if (await canLaunchUrl(uri)) await launchUrl(uri);
-                        },
+                        icon: const Icon(Icons.navigation_rounded, size: 18),
+                        label: const Text('นำทาง', style: TextStyle(fontWeight: FontWeight.bold)),
+                        onPressed: () => _openGoogleMapsNavigation(sos.lat, sos.lng),
                       ),
                     ),
+                    if (sos.phoneNumber.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          icon: const Icon(Icons.phone, size: 18),
+                          label: const Text('โทร', style: TextStyle(fontWeight: FontWeight.bold)),
+                          onPressed: () async {
+                            final uri = Uri.parse('tel:${sos.phoneNumber}');
+                            if (await canLaunchUrl(uri)) await launchUrl(uri);
+                          },
+                        ),
+                      ),
+                    ],
                   ],
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         );
       },

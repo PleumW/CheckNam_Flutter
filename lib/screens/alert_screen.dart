@@ -38,6 +38,73 @@ class AlertScreen extends StatelessWidget {
             },
           ),
         ),
+        actions: [
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            decoration: BoxDecoration(
+              color: Colors.blueAccent.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.4)),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.near_me_rounded, color: Colors.lightBlueAccent, size: 20),
+              tooltip: 'ย้ายตำแหน่ง / ดูแผนที่ทางเลี่ยง',
+              onPressed: () {
+                Navigator.pushNamed(context, '/map');
+              },
+            ),
+          ),
+          AnimatedBuilder(
+            animation: AudioAlarmService(),
+            builder: (context, _) {
+              final alarm = AudioAlarmService();
+              final bool isPlaying = alarm.isPlaying;
+              return Container(
+                margin: const EdgeInsets.only(top: 8, bottom: 8, right: 16, left: 4),
+                decoration: BoxDecoration(
+                  color: isPlaying
+                      ? Colors.redAccent.withValues(alpha: 0.28)
+                      : Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isPlaying ? Colors.redAccent : Colors.white24,
+                    width: isPlaying ? 1.5 : 1.0,
+                  ),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    isPlaying ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                    color: isPlaying ? Colors.redAccent : Colors.white70,
+                    size: 20,
+                  ),
+                  tooltip: isPlaying ? 'ปิดเสียงไซเรนวิกฤต' : 'เปิดเสียงไซเรนวิกฤต',
+                  onPressed: () {
+                    if (isPlaying) {
+                      alarm.mute();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('🔇 ปิดเสียงไซเรนวิกฤตชั่วคราวแล้ว'),
+                          duration: Duration(seconds: 2),
+                          backgroundColor: Colors.black87,
+                        ),
+                      );
+                    } else {
+                      alarm.resetMute();
+                      alarm.startSiren();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('🔊 เปิดเสียงไซเรนวิกฤตแล้ว'),
+                          duration: Duration(seconds: 2),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                    }
+                  },
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: Padding(

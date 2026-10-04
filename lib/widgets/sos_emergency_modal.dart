@@ -94,21 +94,21 @@ class _SosEmergencyModalState extends State<SosEmergencyModal> {
   }
 
   Future<void> _submitSos(double lat, double lng) async {
-    final auth = context.read<AuthProvider>();
-    if (!auth.isAuthenticated || auth.isGuest || auth.role == 'guest') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ผู้เยี่ยมชมไม่สามารถส่งสัญญาณ SOS ได้ กรุณาเข้าสู่ระบบ')),
-      );
-      return;
-    }
-
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSubmitting = true);
 
     try {
       final sensor = context.read<SensorProvider>();
-      final name = _nameController.text.trim().isEmpty ? 'ผู้ประสบภัย' : _nameController.text.trim();
+      final auth = context.read<AuthProvider>();
+      String name = _nameController.text.trim();
+      if (name.isEmpty) {
+        if (auth.user != null) {
+          name = auth.user!.displayName ?? auth.user!.email?.split('@').first ?? 'ผู้ประสบภัย';
+        } else {
+          name = 'ผู้ประสบภัย';
+        }
+      }
       final phone = _phoneController.text.trim();
       final note = _noteController.text.trim();
 

@@ -24,6 +24,7 @@ import 'screens/simulator_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/community_screen.dart';
 import 'screens/admin_management_screen.dart';
+import 'screens/proximity_alert_screen.dart';
 import 'widgets/alert_manager.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -152,6 +153,7 @@ class MyApp extends StatelessWidget {
         '/guide_flood': (context) => const SafetyGuideScreen(type: 'flood'),
         '/simulator': (context) => const SimulatorScreen(),
         '/device_management': (context) => const DeviceManagementScreen(),
+        '/proximity_alert': (context) => const ProximityAlertScreen(),
       },
     );
   }

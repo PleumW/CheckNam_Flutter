@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import 'dart:convert';
-import 'dart:typed_data';
 import '../providers/sensor_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/location_provider.dart';
@@ -84,8 +86,406 @@ class CommunityScreen extends StatefulWidget {
 class _CommunityScreenState extends State<CommunityScreen> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref().child('community_posts');
   final DatabaseReference _adminReportsRef = FirebaseDatabase.instance.ref().child('admin_reports');
+  final Map<String, Uint8List> _imageCache = {};
 
   DateTime? _selectedDate;
+
+  String _generateShareText(CommunityPost post) {
+    final header = post.isDanger ? '🚨 [แจ้งเตือนเหตุวิกฤต/น้ำท่วม]' : '📢 [รายงานสถานการณ์น้ำท่วม GIS]';
+    return '''$header
+📍 สถานที่: ${post.location}
+📝 รายละเอียด: ${post.description}
+⏰ เวลาแจ้ง: ${post.exactTime}
+👤 ผู้รายงาน: ${post.author}
+🌊 ผ่านระบบเฝ้าระวังน้ำท่วมและเตือนภัยอัจฉริยะ (GIS Water Flood Alert)''';
+  }
+
+  void _showShareBottomSheet(CommunityPost post) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final shareText = _generateShareText(post);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 20,
+                offset: const Offset(0, -4),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blueAccent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.share_rounded, color: Colors.blueAccent, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'แชร์รายงานเหตุการณ์',
+                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'ส่งต่อข้อมูลเตือนภัยไปยังเครือข่ายสังคมออนไลน์',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.grey),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: post.isDanger ? Colors.redAccent.withValues(alpha: 0.4) : Colors.transparent,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          post.isDanger ? Icons.warning_rounded : Icons.location_on_rounded,
+                          color: post.isDanger ? Colors.redAccent : Colors.blueAccent,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            post.location,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: post.isDanger ? Colors.redAccent : Colors.blueAccent,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (post.isDanger)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text('ระวังภัย', style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      post.description,
+                      style: const TextStyle(fontSize: 12),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'เลือกช่องทางที่ต้องการแชร์:',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildSocialShareButton(
+                    label: 'Facebook',
+                    iconWidget: const Icon(Icons.facebook, color: Colors.white, size: 28),
+                    color: const Color(0xFF1877F2),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _shareToFacebook(shareText);
+                    },
+                  ),
+                  _buildSocialShareButton(
+                    label: 'LINE',
+                    iconWidget: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'LINE',
+                        style: TextStyle(
+                          color: Color(0xFF06C755),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 11,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    color: const Color(0xFF06C755),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _shareToLine(shareText);
+                    },
+                  ),
+                  _buildSocialShareButton(
+                    label: 'Twitter (X)',
+                    iconWidget: const Text(
+                      '𝕏',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 22,
+                      ),
+                    ),
+                    color: Colors.black,
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _shareToTwitter(shareText);
+                    },
+                  ),
+                  _buildSocialShareButton(
+                    label: 'แชร์อื่นๆ',
+                    iconWidget: const Icon(Icons.share_rounded, color: Colors.white, size: 22),
+                    color: const Color(0xFF2563EB),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _shareGeneric(shareText, post.isDanger);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  label: const Text('คัดลอกข้อความรายงาน', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await Clipboard.setData(ClipboardData(text: shareText));
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Row(
+                            children: [
+                              Icon(Icons.check_circle, color: Colors.white, size: 18),
+                              SizedBox(width: 8),
+                              Text('คัดลอกข้อความรายงานเรียบร้อยแล้ว'),
+                            ],
+                          ),
+                          backgroundColor: Colors.green,
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSocialShareButton({
+    required String label,
+    required Widget iconWidget,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.35),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Center(child: iconWidget),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _shareToFacebook(String text) async {
+    // ก๊อปปี้ข้อความเตรียมไว้ในคลิปบอร์ดแบบเงียบๆ เผื่อผู้ใช้ต้องการกดวางในช่องโพสต์
+    await Clipboard.setData(ClipboardData(text: text));
+
+    // Deep link schemes สำหรับเปิดแอป Facebook โดยตรงบน Android และ iOS
+    final Uri fbAppUri = Uri.parse('fb://facewebmodal/f?href=https://www.facebook.com');
+    final Uri fbFeedUri = Uri.parse('fb://feed');
+    final Uri fbWebUri = Uri.parse('https://www.facebook.com/sharer/sharer.php?quote=${Uri.encodeComponent(text)}');
+
+    try {
+      if (await canLaunchUrl(fbAppUri)) {
+        await launchUrl(fbAppUri, mode: LaunchMode.externalNonBrowserApplication);
+        return;
+      }
+      if (await canLaunchUrl(fbFeedUri)) {
+        await launchUrl(fbFeedUri, mode: LaunchMode.externalNonBrowserApplication);
+        return;
+      }
+      final launched = await launchUrl(fbWebUri, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        await SharePlus.instance.share(ShareParams(text: text, subject: 'รายงานเหตุการณ์น้ำท่วม'));
+      }
+    } catch (_) {
+      try {
+        await launchUrl(fbWebUri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        await SharePlus.instance.share(ShareParams(text: text, subject: 'รายงานเหตุการณ์น้ำท่วม'));
+      }
+    }
+  }
+
+  Future<void> _shareToLine(String text) async {
+    final Uri lineAppUri = Uri.parse('line://msg/text/${Uri.encodeComponent(text)}');
+    final Uri lineWebUri = Uri.parse('https://line.me/R/msg/text/?${Uri.encodeComponent(text)}');
+    try {
+      if (await canLaunchUrl(lineAppUri)) {
+        await launchUrl(lineAppUri, mode: LaunchMode.externalNonBrowserApplication);
+        return;
+      }
+      final launched = await launchUrl(lineWebUri, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        await SharePlus.instance.share(ShareParams(text: text, subject: 'รายงานเหตุการณ์น้ำท่วม'));
+      }
+    } catch (_) {
+      try {
+        await launchUrl(lineWebUri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        await SharePlus.instance.share(ShareParams(text: text, subject: 'รายงานเหตุการณ์น้ำท่วม'));
+      }
+    }
+  }
+
+  Future<void> _shareToTwitter(String text) async {
+    final Uri twitterAppUri = Uri.parse('twitter://post?message=${Uri.encodeComponent(text)}');
+    final Uri twitterWebUri = Uri.parse('https://x.com/intent/tweet?text=${Uri.encodeComponent(text)}');
+    try {
+      if (await canLaunchUrl(twitterAppUri)) {
+        await launchUrl(twitterAppUri, mode: LaunchMode.externalNonBrowserApplication);
+        return;
+      }
+      final launched = await launchUrl(twitterWebUri, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        await SharePlus.instance.share(ShareParams(text: text, subject: 'รายงานเหตุการณ์น้ำท่วม'));
+      }
+    } catch (_) {
+      try {
+        await launchUrl(twitterWebUri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        await SharePlus.instance.share(ShareParams(text: text, subject: 'รายงานเหตุการณ์น้ำท่วม'));
+      }
+    }
+  }
+
+  Future<void> _shareGeneric(String text, bool isDanger) async {
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          text: text,
+          subject: isDanger ? 'แจ้งเตือนเหตุวิกฤตน้ำท่วม' : 'รายงานสถานการณ์น้ำท่วม',
+        ),
+      );
+    } catch (e) {
+      debugPrint('Share generic error: $e');
+    }
+  }
+
+  Future<void> _deletePostAndAssociatedReports(String postKey) async {
+    try {
+      // 1. ลบโพสต์ออกจาก community_posts
+      await _dbRef.child(postKey).remove();
+
+      // 2. ค้นหาและลบรายการแจ้งเหตุใน admin_reports ที่ผูกกับโพสต์นี้ออกด้วย เพื่อเอาสัญลักษณ์เตือนภัยในแผนที่ออก
+      try {
+        final reportsSnapshot = await _adminReportsRef.orderByChild('postId').equalTo(postKey).get();
+        if (reportsSnapshot.exists && reportsSnapshot.value is Map) {
+          final reportsMap = reportsSnapshot.value as Map<dynamic, dynamic>;
+          for (final rKey in reportsMap.keys) {
+            await _adminReportsRef.child(rKey.toString()).remove();
+          }
+        }
+      } catch (_) {}
+
+      // Fallback: ตรวจสอบและลบแบบสแกนทุกรายการเพื่อความปลอดภัยสูงสุด
+      final allReportsSnap = await _adminReportsRef.get();
+      if (allReportsSnap.exists && allReportsSnap.value is Map) {
+        final allReportsMap = allReportsSnap.value as Map<dynamic, dynamic>;
+        for (final entry in allReportsMap.entries) {
+          if (entry.value is Map && entry.value['postId']?.toString() == postKey) {
+            await _adminReportsRef.child(entry.key.toString()).remove();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error deleting post and associated reports: $e');
+      await _dbRef.child(postKey).remove();
+    }
+  }
 
   void _showDeleteConfirmDialog(String postKey) {
     showDialog(
@@ -93,15 +493,17 @@ class _CommunityScreenState extends State<CommunityScreen> {
       builder: (context) {
         return AlertDialog(
           title: const Text('ลบโพสต์'),
-          content: const Text('คุณแน่ใจหรือไม่ว่าต้องการลบโพสต์นี้? การลบไม่สามารถเรียกคืนได้'),
+          content: const Text('คุณแน่ใจหรือไม่ว่าต้องการลบโพสต์นี้? การลบไม่สามารถเรียกคืนได้ และสัญลักษณ์เตือนภัยในแผนที่จะถูกนำออกด้วย'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey))),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
               onPressed: () async {
-                await _dbRef.child(postKey).remove();
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ลบโพสต์สำเร็จ')));
+                await _deletePostAndAssociatedReports(postKey);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ลบโพสต์และนำสัญลักษณ์เตือนภัยออกจากแผนที่เรียบร้อยแล้ว')));
+                }
               },
               child: const Text('ลบ', style: TextStyle(color: Colors.white)),
             ),
@@ -425,8 +827,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final auth = context.read<AuthProvider>();
     final currentUserId = auth.user?.uid ?? '';
     final currentUserName = auth.user?.email?.split('@').first ?? 'ผู้ใช้งานทั่วไป';
-    final sensor = context.watch<SensorProvider>();
-    final deviceId = sensor.selectedDeviceId;
+    final deviceId = context.select<SensorProvider, String>((s) => s.selectedDeviceId);
+    final devices = context.select<SensorProvider, Map<String, DeviceData>>((s) => s.devices);
 
     // Only recreate the stream if the deviceId actually changes
     if (_lastDeviceId != deviceId || _postsStream == null) {
@@ -454,7 +856,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         context.read<SensorProvider>().selectDevice(newValue);
                       }
                     },
-                    items: sensor.devices.values.map((device) {
+                    items: devices.values.map((device) {
                       return DropdownMenuItem<String>(
                         value: device.id,
                         child: Text(device.name),
@@ -562,16 +964,22 @@ class _CommunityScreenState extends State<CommunityScreen> {
           final dataMap = event.snapshot.value as Map<dynamic, dynamic>;
           final List<CommunityPost> posts = dataMap.entries.map((entry) {
             final data = entry.value as Map<dynamic, dynamic>;
+            final postKey = entry.key.toString();
             final String? imgUrl = data['imageUrl'];
             Uint8List? bytes;
             if (imgUrl != null && imgUrl.startsWith('data:image')) {
-              try {
-                final base64Str = imgUrl.contains(',') ? imgUrl.split(',').last : imgUrl;
-                bytes = base64Decode(base64Str);
-              } catch (_) {}
+              if (_imageCache.containsKey(postKey)) {
+                bytes = _imageCache[postKey];
+              } else {
+                try {
+                  final base64Str = imgUrl.contains(',') ? imgUrl.split(',').last : imgUrl;
+                  bytes = base64Decode(base64Str);
+                  _imageCache[postKey] = bytes;
+                } catch (_) {}
+              }
             }
             return CommunityPost(
-              key: entry.key.toString(),
+              key: postKey,
               author: data['author'] ?? 'ไม่ทราบชื่อ',
               location: data['location'] ?? 'ไม่ระบุ',
               description: data['description'] ?? '',
@@ -619,6 +1027,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   itemBuilder: (context, index) {
                     final post = filteredPosts[index];
               return Card(
+                key: ValueKey(post.key),
                 margin: const EdgeInsets.only(bottom: 16),
                 color: Theme.of(context).colorScheme.surface,
                 clipBehavior: Clip.antiAlias,
@@ -679,8 +1088,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     children: [
                                       InteractiveViewer(
                                         child: post.imageBytes != null 
-                                            ? Image.memory(post.imageBytes!)
-                                            : Image.network(post.imageUrl!),
+                                            ? Image.memory(post.imageBytes!, gaplessPlayback: true)
+                                            : Image.network(post.imageUrl!, gaplessPlayback: true),
                                       ),
                                       Positioned(
                                         top: 40,
@@ -700,6 +1109,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               child: post.imageBytes != null 
                                 ? Image.memory(
                                     post.imageBytes!,
+                                    key: ValueKey('img_${post.key}'),
+                                    gaplessPlayback: true,
                                     width: double.infinity,
                                     height: 200,
                                     fit: BoxFit.cover,
@@ -707,6 +1118,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                   )
                                 : Image.network(
                                     post.imageUrl!,
+                                    key: ValueKey('img_${post.key}'),
+                                    gaplessPlayback: true,
                                     width: double.infinity,
                                     height: 200,
                                     fit: BoxFit.cover,
@@ -755,6 +1168,21 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                   const SizedBox(width: 4),
                                   Text('${post.dislikesCount}', style: TextStyle(color: post.dislikedBy.containsKey(currentUserId) ? Colors.redAccent : Colors.grey, fontWeight: FontWeight.bold)),
                                 ],
+                              ),
+                            ),
+                            const SizedBox(width: 20),
+                            InkWell(
+                              onTap: () => _showShareBottomSheet(post),
+                              borderRadius: BorderRadius.circular(8),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.share_outlined, color: Colors.blueAccent, size: 20),
+                                    SizedBox(width: 4),
+                                    Text('แชร์', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                                  ],
+                                ),
                               ),
                             ),
                             const Spacer(),

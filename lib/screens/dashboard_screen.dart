@@ -10,6 +10,7 @@ import '../providers/weather_service.dart';
 import '../providers/location_provider.dart';
 import '../widgets/bottom_nav_bar.dart';
 import '../widgets/sos_emergency_modal.dart';
+import '../services/audio_alarm_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -28,20 +29,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: 78,
         title: GestureDetector(
+          onTap: sensor.devices.length > 1 ? () => _showDeviceSelectorBottomSheet(context, sensor) : null,
           onLongPress: () => Navigator.pushNamed(context, '/simulator'),
+          behavior: HitTestBehavior.opaque,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(sensor.currentDevice?.name ?? 'ระบบเฝ้าระวังความปลอดภัย', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const Text('ระบบเฝ้าระวังความปลอดภัย', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      sensor.currentDevice?.name ?? 'ระบบเฝ้าระวังความปลอดภัย',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (sensor.devices.length > 1) ...[
+                    const SizedBox(width: 4),
+                    const Icon(Icons.arrow_drop_down_rounded, size: 20, color: Colors.blueAccent),
+                  ],
+                ],
+              ),
+              Text(
+                sensor.devices.length > 1
+                    ? 'สลับสถานี (${sensor.devices.values.where((d) => d.isDeviceOnline).length}/${sensor.devices.length} ออนไลน์)'
+                    : 'ระบบเฝ้าระวังความปลอดภัย',
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              ),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
                     Builder(
                       builder: (context) {
-                        final bool isOnline = sensor.currentDevice?.isDeviceOnline ?? true;
+                        final bool isOnline = sensor.currentDevice?.isDeviceOnline ?? false;
                         final Color statusColor = isOnline ? Colors.green : Colors.redAccent;
                         final String statusText = isOnline ? 'ออนไลน์' : 'ออฟไลน์';
                         return Container(
@@ -62,43 +86,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       },
                     ),
                     const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: (sensor.currentDevice?.signalColor ?? Colors.green).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.signal_cellular_alt_rounded, color: sensor.currentDevice?.signalColor ?? Colors.green, size: 10),
-                          const SizedBox(width: 4),
-                          Text(
-                            'เน็ต ${sensor.currentDevice?.signalBars ?? 4}/4 ขีด',
-                            style: TextStyle(color: sensor.currentDevice?.signalColor ?? Colors.green, fontSize: 10, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 6),
                     Builder(
                       builder: (context) {
                         final dev = sensor.currentDevice;
-                        final int batt = dev?.batteryPercent ?? 85;
-                        final Color bColor = dev?.batteryColor ?? Colors.green;
-                        final IconData bIcon = dev?.batteryIcon ?? Icons.battery_full_rounded;
+                        final bool isOnline = dev?.isDeviceOnline ?? false;
+                        final Color sigColor = dev?.signalColor ?? Colors.grey;
+                        final IconData sigIcon = dev?.signalIcon ?? Icons.wifi_off_rounded;
+                        final String sigText = isOnline
+                            ? 'Wi-Fi ${dev?.signalPercent ?? 0}% (${dev?.signalBars ?? 0}/4)'
+                            : 'Wi-Fi ออฟไลน์';
                         return Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: bColor.withValues(alpha: 0.15),
+                            color: sigColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Row(
                             children: [
-                              Icon(bIcon, color: bColor, size: 10),
+                              Icon(sigIcon, color: sigColor, size: 10),
                               const SizedBox(width: 4),
                               Text(
-                                'แบต $batt%',
-                                style: TextStyle(color: bColor, fontSize: 10, fontWeight: FontWeight.bold),
+                                sigText,
+                                style: TextStyle(color: sigColor, fontSize: 10, fontWeight: FontWeight.bold),
                               ),
                             ],
                           ),
@@ -125,6 +134,83 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
+                    AnimatedBuilder(
+                      animation: AudioAlarmService(),
+                      builder: (context, _) {
+                        final alarm = AudioAlarmService();
+                        final bool isPlaying = alarm.isPlaying;
+                        final bool isEnabled = alarm.isAlarmEnabled;
+                        final sensor = context.watch<SensorProvider>();
+                        final bool isCritical = sensor.devices.values.any((d) =>
+                            d.isElectricalLeakage ||
+                            d.waterLevel >= 60.0 ||
+                            d.isFloodDanger ||
+                            d.earlyWarningSeverity == EarlyWarningSeverity.critical);
+
+                        final Color bgColor;
+                        final Color borderColor;
+                        final Color contentColor;
+                        final IconData iconData;
+                        final String labelText;
+
+                        if (isPlaying) {
+                          bgColor = Colors.redAccent.withValues(alpha: 0.25);
+                          borderColor = Colors.redAccent;
+                          contentColor = Colors.redAccent;
+                          iconData = Icons.volume_up_rounded;
+                          labelText = 'ไซเรนดัง (กดปิด)';
+                        } else if (isEnabled) {
+                          bgColor = Colors.green.withValues(alpha: 0.15);
+                          borderColor = Colors.green.withValues(alpha: 0.4);
+                          contentColor = Colors.greenAccent;
+                          iconData = Icons.volume_up_rounded;
+                          labelText = 'เปิดเสียงเตือน';
+                        } else {
+                          bgColor = Colors.white.withValues(alpha: 0.08);
+                          borderColor = Colors.white24;
+                          contentColor = Colors.grey.shade400;
+                          iconData = Icons.volume_off_rounded;
+                          labelText = 'ปิดเสียงเตือน';
+                        }
+
+                        return InkWell(
+                          onTap: () {
+                            alarm.toggleAlarm(isCurrentlyCritical: isCritical);
+                          },
+                          borderRadius: BorderRadius.circular(4),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: bgColor,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: borderColor,
+                                width: isPlaying ? 1.5 : 1.0,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  iconData,
+                                  color: contentColor,
+                                  size: 12,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  labelText,
+                                  style: TextStyle(
+                                    color: contentColor,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -132,6 +218,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
         actions: [
+          AnimatedBuilder(
+            animation: AudioAlarmService(),
+            builder: (context, _) {
+              final alarm = AudioAlarmService();
+              final bool isPlaying = alarm.isPlaying;
+              final bool isEnabled = alarm.isAlarmEnabled;
+              final sensor = context.watch<SensorProvider>();
+              final bool isCritical = sensor.devices.values.any((d) =>
+                  d.isElectricalLeakage ||
+                  d.waterLevel >= 60.0 ||
+                  d.isFloodDanger ||
+                  d.earlyWarningSeverity == EarlyWarningSeverity.critical);
+
+              final Color bgColor;
+              final Color iconColor;
+              final IconData iconData;
+              final String tooltip;
+
+              if (isPlaying) {
+                bgColor = Colors.redAccent.withValues(alpha: 0.25);
+                iconColor = Colors.redAccent;
+                iconData = Icons.volume_up_rounded;
+                tooltip = 'ไซเรนเตือนภัยกำลังดัง (กดเพื่อปิดเสียง)';
+              } else if (isEnabled) {
+                bgColor = Colors.green.withValues(alpha: 0.15);
+                iconColor = Colors.greenAccent;
+                iconData = Icons.volume_up_rounded;
+                tooltip = 'เปิดระบบเสียงเตือนภัยค้างไว้ (พร้อมดังเมื่อวิกฤต)';
+              } else {
+                bgColor = Colors.transparent;
+                iconColor = Colors.grey;
+                iconData = Icons.volume_off_rounded;
+                tooltip = 'ปิดเสียงเตือนภัย (กดเพื่อเปิดระบบเสียง)';
+              }
+
+              return Container(
+                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  shape: BoxShape.circle,
+                  border: isPlaying
+                      ? Border.all(color: Colors.redAccent, width: 1.5)
+                      : (isEnabled ? Border.all(color: Colors.green.withValues(alpha: 0.4), width: 1.0) : null),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    iconData,
+                    color: iconColor,
+                  ),
+                  tooltip: tooltip,
+                  onPressed: () {
+                    alarm.toggleAlarm(isCurrentlyCritical: isCritical);
+                  },
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: Icon(_isEditingLayout ? Icons.check_circle_rounded : Icons.tune_rounded),
             color: _isEditingLayout ? Colors.greenAccent : null,
@@ -197,12 +340,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'dashboard_sos_btn',
-        onPressed: () => SosEmergencyModal.show(context),
-        backgroundColor: Colors.redAccent,
-        icon: const Icon(Icons.sos_rounded, color: Colors.white, size: 24),
-        label: const Text('ขอความช่วยเหลือ SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+      floatingActionButton: SizedBox(
+        height: 38,
+        child: FloatingActionButton.extended(
+          heroTag: 'dashboard_sos_btn',
+          onPressed: () => SosEmergencyModal.show(context),
+          backgroundColor: Colors.redAccent,
+          elevation: 3,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          label: const Text(
+            'SOS',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 13,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
       ),
       bottomNavigationBar: const AppBottomNavBar(currentIndex: 1),
     );
@@ -374,6 +529,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               precipitation: precip.toDouble(),
               description: weather['description'] ?? 'ปกติ',
               prob30: (weather['prob30'] ?? 10) as int,
+              prob60: (weather['prob60'] ?? 20) as int,
+              prob90: (weather['prob90'] ?? 15) as int,
             );
           });
         }
@@ -394,16 +551,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Text(weather['icon'], style: const TextStyle(fontSize: 20)),
-                    const SizedBox(width: 8),
-                    Text(
-                      weather['description'],
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                  ],
+                Expanded(
+                  child: Row(
+                    children: [
+                      Text(weather['icon'], style: const TextStyle(fontSize: 20)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          weather['description'],
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Text(
                   '${weather['temperature']} °C  •  💧 ${precipVal.toStringAsFixed(1)} มม.',
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
@@ -517,14 +680,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
       bgColor = Colors.red.withValues(alpha: 0.15);
       fgColor = Colors.red;
       icon = Icons.bolt;
-    } else if (sensor.floodWarningLevel == FloodWarningLevel.danger) {
+    } else if (sensor.floodWarningLevel == FloodWarningLevel.danger || sensor.earlyWarningSeverity == EarlyWarningSeverity.critical) {
       bgColor = Colors.red.withValues(alpha: 0.15);
       fgColor = Colors.red;
-      icon = Icons.warning;
-    } else if (sensor.floodWarningLevel == FloodWarningLevel.warning) {
+      icon = Icons.warning_rounded;
+    } else if (sensor.floodWarningLevel == FloodWarningLevel.warning || sensor.earlyWarningSeverity == EarlyWarningSeverity.alert) {
       bgColor = Colors.orange.withValues(alpha: 0.15);
       fgColor = Colors.orange;
-      icon = Icons.warning_amber;
+      icon = Icons.warning_amber_rounded;
+    } else if (sensor.earlyWarningSeverity == EarlyWarningSeverity.advisory) {
+      bgColor = Colors.amber.withValues(alpha: 0.15);
+      fgColor = Colors.amber.shade800;
+      icon = Icons.cloudy_snowing;
     } else {
       bgColor = Colors.green.withValues(alpha: 0.15);
       fgColor = Colors.green;
@@ -718,7 +885,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildElectricityCard(BuildContext context, SensorProvider sensor, {WidgetSizeMode sizeMode = WidgetSizeMode.full}) {
-    Color leakColor = sensor.isElectricalLeakage ? Colors.red : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black87);
+    final dev = sensor.currentDevice;
+    final bool hasSensor = dev?.hasCurrentSensor ?? false;
+    final bool isLeak = hasSensor && sensor.isElectricalLeakage;
+    Color leakColor = isLeak
+        ? Colors.red
+        : (!hasSensor ? Colors.grey : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black87));
     final bool isCompact = sizeMode == WidgetSizeMode.compact;
 
     if (isCompact) {
@@ -727,23 +899,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: sensor.isElectricalLeakage ? Colors.red.withValues(alpha: 0.5) : Colors.transparent, width: 1),
+          border: Border.all(color: isLeak ? Colors.red.withValues(alpha: 0.5) : Colors.transparent, width: 1),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: (sensor.isElectricalLeakage ? Colors.red : Colors.green).withValues(alpha: 0.1),
+                color: (isLeak ? Colors.red : (hasSensor ? Colors.green : Colors.grey)).withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.bolt, color: sensor.isElectricalLeakage ? Colors.red : Colors.green, size: 18),
+              child: Icon(Icons.bolt, color: isLeak ? Colors.red : (hasSensor ? Colors.green : Colors.grey), size: 18),
             ),
             const SizedBox(width: 10),
             const Text('กระแสไฟฟ้า: ', style: TextStyle(color: Colors.grey, fontSize: 13)),
-            Text(
-              sensor.isElectricalLeakage ? 'รั่วไหล (อันตราย!)' : 'ปกติ (ปลอดภัย)',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: leakColor),
+            Expanded(
+              child: Text(
+                !hasSensor ? 'ไม่ได้ติดตั้งเซนเซอร์' : (isLeak ? 'รั่วไหล (อันตราย!)' : 'ปกติ (ปลอดภัย)'),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: leakColor),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ),
@@ -757,7 +932,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: sensor.isElectricalLeakage ? Colors.red.withValues(alpha: 0.5) : Colors.transparent, width: 1),
+        border: Border.all(color: isLeak ? Colors.red.withValues(alpha: 0.5) : Colors.transparent, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -767,10 +942,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.1),
+                  color: (hasSensor ? Colors.green : Colors.grey).withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.bolt, color: Colors.green, size: 20),
+                child: Icon(Icons.bolt, color: hasSensor ? (isLeak ? Colors.red : Colors.green) : Colors.grey, size: 20),
               ),
               const SizedBox(width: 8),
               Text('กระแสไฟฟ้า', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey)),
@@ -781,17 +956,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
             duration: const Duration(milliseconds: 500),
             style: Theme.of(context).textTheme.displayMedium!.copyWith(
               color: leakColor,
-              fontSize: 22,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
-            child: Text(sensor.isElectricalLeakage ? 'รั่วไหล' : 'ปกติ'),
+            child: Text(!hasSensor ? 'ไม่ได้ติดตั้ง' : (isLeak ? 'รั่วไหล' : 'ปกติ')),
           ),
           const SizedBox(height: 4),
           Text(
-            sensor.isElectricalLeakage ? 'ตรวจพบอันตราย' : 'ปลอดภัย ไร้ไฟรั่ว',
+            !hasSensor
+                ? 'จุดนี้ยังไม่ได้ติดตั้งเซนเซอร์วัดไฟ'
+                : (isLeak ? 'ตรวจพบอันตราย' : 'ปลอดภัย ไร้ไฟรั่ว'),
             style: TextStyle(
               fontSize: 12,
-              color: sensor.isElectricalLeakage ? Colors.red : Colors.grey,
+              color: isLeak ? Colors.red : Colors.grey,
             ),
           ),
         ],
@@ -816,12 +993,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             Icon(Icons.cloud, color: isHeavy ? Colors.orange : Colors.blue, size: 18),
             const SizedBox(width: 8),
-            Text('สภาพอากาศ: ', style: const TextStyle(color: Colors.grey, fontSize: 13)),
-            Text(
-              isHeavy ? 'ฝนตกหนัก' : (sensor.rainfall > 0 ? 'มีฝนตก' : 'ปกติ'),
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: statusColor),
+            const Text('สภาพอากาศ: ', style: TextStyle(color: Colors.grey, fontSize: 13)),
+            Expanded(
+              child: Text(
+                isHeavy ? 'ฝนตกหนัก' : (sensor.rainfall > 0 ? 'มีฝนตก' : 'ปกติ'),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: statusColor),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            const Spacer(),
+            const SizedBox(width: 8),
             Text('ฝน ${sensor.rainfall.toStringAsFixed(1)} มม.', style: const TextStyle(fontSize: 11, color: Colors.grey)),
           ],
         ),
@@ -884,29 +1064,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildWaterRiseSpeedCard(BuildContext context, SensorProvider sensor, {WidgetSizeMode sizeMode = WidgetSizeMode.full}) {
-    final bool isFast = sensor.risingSpeed > 10.0;
-    final bool isRising = sensor.risingSpeed > 0;
-    
+    final severity = sensor.earlyWarningSeverity;
+    final double compoundRate = sensor.compoundRisingSpeed;
+    final double rawSpeed = sensor.risingSpeed;
+    final bool isCritical = severity == EarlyWarningSeverity.critical;
+    final bool isAlert = severity == EarlyWarningSeverity.alert;
+    final bool isAdvisory = severity == EarlyWarningSeverity.advisory;
+    final bool isHighlighted = isCritical || isAlert;
+
+    Color badgeColor;
+    String badgeText;
     Color statusColor;
     String statusDesc;
     IconData statusIcon;
 
-    if (isFast) {
-      statusColor = Colors.orange;
-      statusDesc = 'น้ำขึ้นเร็ว';
-      statusIcon = Icons.trending_up;
-    } else if (isRising) {
-      statusColor = Colors.blue;
-      statusDesc = 'น้ำกำลังค่อยๆ สูงขึ้น';
-      statusIcon = Icons.trending_up;
-    } else if (sensor.risingSpeed < 0) {
-      statusColor = Colors.green;
-      statusDesc = 'น้ำกำลังลดลง';
-      statusIcon = Icons.trending_down;
-    } else {
-      statusColor = Colors.green;
-      statusDesc = 'น้ำคงที่ ปกติ';
-      statusIcon = Icons.trending_flat;
+    switch (severity) {
+      case EarlyWarningSeverity.critical:
+        badgeColor = const Color(0xFFEF4444);
+        badgeText = 'วิกฤตเตือนภัยล่วงหน้า';
+        statusColor = const Color(0xFFEF4444);
+        statusDesc = 'เสี่ยงน้ำท่วมฉับพลันสูง';
+        statusIcon = Icons.warning_rounded;
+        break;
+      case EarlyWarningSeverity.alert:
+        badgeColor = const Color(0xFFF97316);
+        badgeText = 'เตือนภัยล่วงหน้า';
+        statusColor = const Color(0xFFF97316);
+        statusDesc = 'น้ำขึ้นเร็ว + เสี่ยงฝน';
+        statusIcon = Icons.speed_rounded;
+        break;
+      case EarlyWarningSeverity.advisory:
+        badgeColor = const Color(0xFFEAB308);
+        badgeText = 'เฝ้าระวังฝนสะสม';
+        statusColor = const Color(0xFFEAB308);
+        statusDesc = 'มีปัจจัยฝนตกในพื้นที่';
+        statusIcon = Icons.cloudy_snowing;
+        break;
+      case EarlyWarningSeverity.none:
+        badgeColor = const Color(0xFF10B981);
+        badgeText = 'สภาวะปกติ';
+        if (rawSpeed > 0) {
+          statusColor = Colors.blue;
+          statusDesc = 'ระดับน้ำค่อยๆ เพิ่ม';
+          statusIcon = Icons.trending_up_rounded;
+        } else if (rawSpeed < 0) {
+          statusColor = Colors.green;
+          statusDesc = 'ระดับน้ำกำลังลดลง';
+          statusIcon = Icons.trending_down_rounded;
+        } else {
+          statusColor = Colors.green;
+          statusDesc = 'ระดับน้ำทรงตัว ปกติ';
+          statusIcon = Icons.trending_flat_rounded;
+        }
+        break;
     }
 
     final bool isCompact = sizeMode == WidgetSizeMode.compact;
@@ -917,19 +1127,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: isFast ? Colors.orange.withValues(alpha: 0.5) : Colors.transparent),
+          border: Border.all(
+            color: isHighlighted ? badgeColor.withValues(alpha: 0.5) : (isAdvisory ? badgeColor.withValues(alpha: 0.3) : Colors.transparent),
+            width: isHighlighted ? 1.5 : 1.0,
+          ),
         ),
         child: Row(
           children: [
-            Icon(statusIcon, color: statusColor, size: 18),
+            Icon(statusIcon, color: statusColor, size: 20),
             const SizedBox(width: 8),
-            Text('ความเร็วการเพิ่มระดับน้ำ: ', style: const TextStyle(color: Colors.grey, fontSize: 13)),
-            Text(
-              '${sensor.risingSpeed > 0 ? '+' : ''}${sensor.risingSpeed.toStringAsFixed(1)} ซม./ชม.',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isFast ? Colors.orange : statusColor),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Text('ความเร็วคาดการณ์: ', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      Flexible(
+                        child: Text(
+                          '${compoundRate > 0 ? '+' : ''}${compoundRate.toStringAsFixed(1)} ซม./ชม.',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: statusColor),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    'เซนเซอร์ ${rawSpeed > 0 ? '+' : ''}${rawSpeed.toStringAsFixed(1)} • ฝน 30น. ${sensor.forecastRainProb30}%',
+                    style: TextStyle(fontSize: 10.5, color: Colors.grey.shade600),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
-            const Spacer(),
-            Text(statusDesc, style: TextStyle(fontSize: 11, color: statusColor, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: badgeColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
+              ),
+              child: Text(
+                badgeText,
+                style: TextStyle(fontSize: 10.5, color: badgeColor, fontWeight: FontWeight.bold),
+              ),
+            ),
           ],
         ),
       );
@@ -940,11 +1184,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       curve: Curves.easeInOut,
       padding: const EdgeInsets.all(18.0),
       decoration: BoxDecoration(
-        color: isFast ? Colors.orange.withValues(alpha: 0.1) : Theme.of(context).colorScheme.surface,
+        color: isHighlighted
+            ? badgeColor.withValues(alpha: 0.08)
+            : Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isFast ? Colors.orange : Colors.transparent,
-          width: isFast ? 1.5 : 1.0,
+          color: isHighlighted ? badgeColor : (isAdvisory ? badgeColor.withValues(alpha: 0.4) : Colors.transparent),
+          width: isHighlighted ? 1.5 : 1.0,
         ),
       ),
       child: Column(
@@ -953,38 +1199,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: (isFast ? Colors.orange : Colors.blue).withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: badgeColor.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.speed_rounded, color: badgeColor, size: 22),
                     ),
-                    child: Icon(Icons.speed, color: isFast ? Colors.orange : Colors.blue, size: 22),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'ความเร็วการเพิ่มระดับน้ำ',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'วิเคราะห์ความเร็ว & เตือนภัยล่วงหน้า',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14.5,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const Text(
+                            'ประมวลผลเซนเซอร์ + พยากรณ์อากาศ AI',
+                            style: TextStyle(fontSize: 10.5, color: Colors.grey),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              if (isFast)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.orange,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    'เตือนภัยล่วงหน้า',
-                    style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
+                  ],
                 ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: badgeColor.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: badgeColor.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(statusIcon, color: badgeColor, size: 12),
+                    const SizedBox(width: 4),
+                    Text(
+                      badgeText,
+                      style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -993,15 +1262,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                '${sensor.risingSpeed > 0 ? '+' : ''}${sensor.risingSpeed.toStringAsFixed(1)}',
+                '${compoundRate > 0 ? '+' : ''}${compoundRate.toStringAsFixed(1)}',
                 style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                  fontSize: 36,
+                  fontSize: 34,
                   fontWeight: FontWeight.bold,
-                  color: isFast ? Colors.orange : Theme.of(context).textTheme.bodyLarge?.color,
+                  color: isHighlighted ? badgeColor : Theme.of(context).textTheme.bodyLarge?.color,
                 ),
               ),
               const SizedBox(width: 6),
-              const Text('ซม./ชม.', style: TextStyle(color: Colors.grey, fontSize: 14)),
+              const Text('ซม./ชม.', style: TextStyle(color: Colors.grey, fontSize: 13)),
               const Spacer(),
               Row(
                 children: [
@@ -1016,30 +1285,77 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           const SizedBox(height: 12),
+          // Formula breakdown metrics
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.grey.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.sensors_rounded, size: 14, color: Colors.blueAccent),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'เซนเซอร์: ${rawSpeed > 0 ? '+' : ''}${rawSpeed.toStringAsFixed(1)} ซม./ชม.',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(width: 1, height: 16, color: Colors.grey.withValues(alpha: 0.3)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.umbrella_rounded, size: 14, color: Colors.amber),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'ฝน 30น.: ${sensor.forecastRainProb30}% (${sensor.rainfall.toStringAsFixed(1)} มม.)',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: (sensor.currentDevice?.trendColor ?? Colors.blue).withValues(alpha: 0.1),
+              color: (sensor.currentDevice?.earlyWarningColor ?? Colors.blue).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: (sensor.currentDevice?.trendColor ?? Colors.blue).withValues(alpha: 0.25),
+                color: (sensor.currentDevice?.earlyWarningColor ?? Colors.blue).withValues(alpha: 0.25),
               ),
             ),
             child: Row(
               children: [
                 Icon(
-                  sensor.currentDevice?.trendIcon ?? Icons.trending_flat_rounded,
-                  color: sensor.currentDevice?.trendColor ?? Colors.blue,
+                  sensor.currentDevice?.earlyWarningIcon ?? Icons.trending_flat_rounded,
+                  color: sensor.currentDevice?.earlyWarningColor ?? Colors.blue,
                   size: 16,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    sensor.currentDevice?.estimatedTimeToDangerText ?? 'สถานการณ์ปกติ',
+                    sensor.currentDevice?.compoundTimeToDangerText ?? 'สถานการณ์ปกติ',
                     style: TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.bold,
-                      color: sensor.currentDevice?.trendColor ?? Colors.blue,
+                      color: sensor.currentDevice?.earlyWarningColor ?? Colors.blue,
                     ),
                   ),
                 ),
@@ -1151,6 +1467,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       fontSize: isCompact ? 12 : 13,
                       fontWeight: FontWeight.bold,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                   if (!isCompact) ...[
                     const SizedBox(height: 4),
@@ -1345,13 +1662,64 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildDeviceSignalCard(BuildContext context, SensorProvider sensor, {WidgetSizeMode sizeMode = WidgetSizeMode.full}) {
     final device = sensor.currentDevice;
-    final int signalBars = device?.signalBars ?? 4;
-    final int signalRssi = device?.signalRssi ?? -62;
-    final Color signalColor = device?.signalColor ?? Colors.green;
-    final String qualityText = device?.signalQualityText ?? 'ดีมาก';
+    final bool isOnline = device?.isDeviceOnline ?? false;
+    final int signalBars = device?.signalBars ?? 0;
+    final int signalRssi = device?.signalRssi ?? -100;
+    final int signalPercent = device?.signalPercent ?? 0;
+    final Color signalColor = device?.signalColor ?? Colors.grey;
+    final String qualityText = device?.signalQualityText ?? 'ไม่มีสัญญาณ (ออฟไลน์)';
+    final String ssid = device?.wifiSsid ?? '';
+
+    if (sizeMode == WidgetSizeMode.compact) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: signalColor.withValues(alpha: 0.25), width: 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildSignalBarsIndicator(signalBars, signalColor),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: signalColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    isOnline ? '$signalPercent%' : 'ออฟไลน์',
+                    style: TextStyle(color: signalColor, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isOnline ? '$signalBars/4 ขีด ($signalRssi dBm)' : 'ไม่มีสัญญาณ',
+              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: signalColor),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (isOnline && ssid.isNotEmpty)
+              Text(
+                'SSID: $ssid',
+                style: const TextStyle(fontSize: 9.5, color: Colors.grey),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+          ],
+        ),
+      );
+    }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
@@ -1360,35 +1728,66 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Row(
         children: [
           _buildSignalBarsIndicator(signalBars, signalColor),
-          const SizedBox(width: 12),
-          Text(
-            '$signalBars/4 ขีด',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: signalColor,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 6,
+                  runSpacing: 2,
+                  children: [
+                    Text(
+                      isOnline ? '$signalBars/4 ขีด ($signalPercent%)' : '0/4 ขีด (ออฟไลน์)',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.bold,
+                        color: signalColor,
+                      ),
+                    ),
+                    if (isOnline)
+                      Text(
+                        '($signalRssi dBm)',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey,
+                        ),
+                      ),
+                  ],
+                ),
+                if (isOnline && ssid.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      'SSID: $ssid',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(width: 6),
-          Text(
-            '($signalRssi dBm)',
-            style: const TextStyle(
-              fontSize: 11,
-              color: Colors.grey,
-            ),
-          ),
-          const Spacer(),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            constraints: const BoxConstraints(maxWidth: 135),
             decoration: BoxDecoration(
               color: signalColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
               qualityText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: signalColor,
-                fontSize: 11,
+                fontSize: 10.5,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -1400,20 +1799,192 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildSignalBarsIndicator(int activeBars, Color color) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: List.generate(4, (index) {
         final bool isActive = index < activeBars;
-        final double barHeight = 8.0 + (index * 6.0); // 8px, 14px, 20px, 26px
+        final double barHeight = 7.0 + (index * 5.0); // 7px, 12px, 17px, 22px
         return Container(
-          width: 6,
+          width: 5,
           height: barHeight,
-          margin: const EdgeInsets.only(right: 3),
+          margin: const EdgeInsets.only(right: 2.5),
           decoration: BoxDecoration(
             color: isActive ? color : Colors.grey.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(2),
           ),
         );
       }),
+    );
+  }
+
+  void _showDeviceSelectorBottomSheet(BuildContext context, SensorProvider sensor) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final devices = sensor.devices.values.toList();
+        final selectedId = sensor.selectedDeviceId;
+        final theme = Theme.of(context);
+        return SafeArea(
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'เลือกสถานีตรวจวัด IoT',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.blueAccent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'ทั้งหมด ${devices.length} สถานี',
+                        style: const TextStyle(fontSize: 11, color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'แตะสถานีเพื่อสลับการแสดงผลข้อมูลบนแดชบอร์ด',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: devices.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final dev = devices[index];
+                      final bool isSelected = dev.id == selectedId;
+                      final bool isOnline = dev.isDeviceOnline;
+                      final Color statusColor = isOnline ? Colors.green : Colors.redAccent;
+
+                      return InkWell(
+                        onTap: () {
+                          sensor.selectDevice(dev.id);
+                          Navigator.pop(ctx);
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.blueAccent.withValues(alpha: 0.12)
+                                : theme.cardColor.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isSelected ? Colors.blueAccent : Colors.grey.withValues(alpha: 0.2),
+                              width: isSelected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: (isOnline ? Colors.blueAccent : Colors.grey).withValues(alpha: 0.12),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.sensors_rounded,
+                                  color: isOnline ? Colors.blueAccent : Colors.grey,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            dev.name,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                              color: isSelected ? Colors.blueAccent : null,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: statusColor.withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(isOnline ? Icons.circle : Icons.error_outline_rounded, color: statusColor, size: 6),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                isOnline ? 'ออนไลน์' : 'ออฟไลน์',
+                                                style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      isOnline
+                                          ? 'ระดับน้ำ: ${dev.waterLevel.toStringAsFixed(1)} ซม. • Wi-Fi ${dev.signalPercent}%'
+                                          : 'ขาดการติดต่อกับอุปกรณ์',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isOnline ? Colors.grey : Colors.redAccent.withValues(alpha: 0.7),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isSelected)
+                                const Icon(Icons.check_circle_rounded, color: Colors.blueAccent, size: 22)
+                              else
+                                const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

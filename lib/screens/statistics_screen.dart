@@ -63,6 +63,40 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           ],
         ),
         actions: [
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: sensor.isDeviceOnline
+                  ? Colors.green.withValues(alpha: 0.15)
+                  : Colors.orange.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: sensor.isDeviceOnline
+                    ? Colors.green.withValues(alpha: 0.35)
+                    : Colors.orange.withValues(alpha: 0.35),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.sensors_rounded,
+                  color: sensor.isDeviceOnline ? Colors.green : Colors.orange,
+                  size: 14,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  sensor.isDeviceOnline ? 'บันทึก 24/7 อัตโนมัติ' : 'รอเชื่อมต่อ 24/7',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: sensor.isDeviceOnline ? Colors.green : Colors.orange,
+                  ),
+                ),
+              ],
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.share_rounded),
             tooltip: 'ส่งออกรายงานสรุป',
@@ -75,6 +109,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            // 24/7 Auto-Logging Status Card
+            _buildAutoLoggingStatusCard(context, sensor),
+            const SizedBox(height: 16),
             // Chart Range Buttons
             Container(
               decoration: BoxDecoration(
@@ -93,9 +130,36 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            Text(
-              'กราฟสถิติระดับน้ำ (${sensor.currentDevice?.name ?? "อุปกรณ์"})',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                Text(
+                  'กราฟสถิติระดับน้ำ (${sensor.currentDevice?.name ?? "อุปกรณ์"})',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.withValues(alpha: 0.35)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.fiber_manual_record, color: Colors.green, size: 8),
+                      SizedBox(width: 5),
+                      Text(
+                        'บันทึก 24/7 จากอุปกรณ์',
+                        style: TextStyle(fontSize: 10.5, color: Colors.green, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -103,9 +167,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               child: _buildCorrelationChart(context),
             ),
             const SizedBox(height: 20),
-            // Smart Prediction Card
-            _buildSmartPredictionCard(context, sensor),
-            const SizedBox(height: 14),
             // Export Report Button
             SizedBox(
               width: double.infinity,
@@ -122,9 +183,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               ),
             ),
             const SizedBox(height: 28),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text('ประวัติการแจ้งเตือนล่าสุด', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.grey)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'ประวัติการแจ้งเตือนล่าสุด',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.grey),
+                ),
+                if (sensor.alertHistory.isNotEmpty)
+                  Text(
+                    'แสดง ${sensor.alertHistory.take(5).length} อันดับล่าสุด',
+                    style: const TextStyle(fontSize: 12, color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                  ),
+              ],
             ),
             const SizedBox(height: 16),
             if (sensor.alertHistory.isEmpty)
@@ -133,7 +204,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 child: Text('ยังไม่มีประวัติการแจ้งเตือน', style: TextStyle(color: Colors.grey)),
               )
             else
-              ...sensor.alertHistory.map((alert) {
+              ...sensor.alertHistory.take(5).map((alert) {
                 IconData icon;
                 Color color;
                 switch (alert.type) {
@@ -144,6 +215,14 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   case 'danger':
                     icon = Icons.error_outline;
                     color = Colors.red;
+                    break;
+                  case 'early_critical':
+                    icon = Icons.warning_rounded;
+                    color = Colors.deepOrange;
+                    break;
+                  case 'early_warning':
+                    icon = Icons.speed_rounded;
+                    color = Colors.orange;
                     break;
                   case 'warning':
                     icon = Icons.warning_amber_rounded;
@@ -254,6 +333,94 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       waterLevelSpots.add(FlSpot(0, sensor.waterLevel));
     }
 
+    double maxY = 200.0;
+    if (waterLevelSpots.isNotEmpty) {
+      final highest = waterLevelSpots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
+      if (highest > 160) {
+        maxY = ((highest * 1.25) / 50).ceil() * 50.0;
+      }
+    }
+
+    // กำหนดจำนวน Tick และ Interval บนแกนเวลาให้ไม่ซ้ำซ้อน
+    final int totalTicks;
+    final double bottomInterval;
+    if (_selectedRange == '24h') {
+      totalTicks = 4;
+      bottomInterval = (maxX / totalTicks).clamp(1.0, double.infinity);
+    } else if (_selectedRange == '7 Days') {
+      totalTicks = 6;
+      bottomInterval = (maxX / totalTicks).clamp(1.0, double.infinity);
+    } else {
+      totalTicks = 4;
+      bottomInterval = 5.0;
+    }
+
+    String getBottomTitle(double value) {
+      final double rawT = value / bottomInterval;
+      final int t = rawT.round();
+      if ((rawT - t).abs() > 0.08 || t < 0 || t > totalTicks) {
+        return '';
+      }
+
+      if (_selectedRange == 'Live') {
+        if (t == totalTicks) return 'ล่าสุด';
+        final int secsAgo = (totalTicks - t) * 5;
+        return '-${secsAgo}s';
+      }
+
+      if (_selectedRange == '24h') {
+        final h24 = sensor.history24h;
+        if (h24.isEmpty) return '';
+        final int idx = (t * (h24.length - 1) / totalTicks).round().clamp(0, h24.length - 1);
+        final item = h24[idx];
+        if (item['timestamp'] != null) {
+          final dt = DateTime.fromMillisecondsSinceEpoch(item['timestamp']);
+          final now = DateTime.now();
+          final firstTs = h24.first['timestamp'] ?? 0;
+          final lastTs = h24.last['timestamp'] ?? 0;
+          final firstDt = DateTime.fromMillisecondsSinceEpoch(firstTs);
+          final lastDt = DateTime.fromMillisecondsSinceEpoch(lastTs);
+          final bool isShortDuration = lastDt.difference(firstDt).inHours.abs() < 12;
+
+          if (isShortDuration) {
+            // ช่วงเวลาสั้น ให้แสดงชั่วโมง:นาที เพื่อไม่ให้เวลาซ้ำกัน
+            return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+          } else {
+            // ข้อมูลรอบ 24 ชั่วโมง: แยกแยะระหว่างเมื่อวานกับวันนี้เพื่อไม่ให้ซ้ำกัน
+            if (t == totalTicks) {
+              return 'วันนี้ ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+            } else if (dt.day != now.day) {
+              return 'วาน ${dt.hour.toString().padLeft(2, '0')}:00';
+            } else {
+              return '${dt.hour.toString().padLeft(2, '0')}:00';
+            }
+          }
+        }
+        return t == totalTicks ? 'ปัจจุบัน' : '-${(totalTicks - t) * 6}ชม.';
+      }
+
+      if (_selectedRange == '7 Days') {
+        final h7d = sensor.history7d;
+        if (h7d.isEmpty) return '';
+        final int idx = (t * (h7d.length - 1) / totalTicks).round().clamp(0, h7d.length - 1);
+        final item = h7d[idx];
+        if (item['timestamp'] != null) {
+          final dt = DateTime.fromMillisecondsSinceEpoch(item['timestamp']);
+          final now = DateTime.now();
+          if (t == totalTicks || (dt.day == now.day && dt.month == now.month)) {
+            return 'วันนี้';
+          }
+          const dayNames = ['จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.'];
+          final dayName = dayNames[(dt.weekday - 1) % 7];
+          // แสดงชื่อวันคู่กับวันที่ เพื่อการันตีว่าชื่อวันและวันที่ไม่มีทางซ้ำกันใน 7 วัน
+          return '$dayName ${dt.day}';
+        }
+        return t == totalTicks ? 'วันนี้' : '-${totalTicks - t}วัน';
+      }
+
+      return '';
+    }
+
     return Column(
       children: [
         Row(
@@ -287,7 +454,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           child: LineChart(
             LineChartData(
               minY: 0,
-              maxY: 200,
+              maxY: maxY,
               minX: 0,
               maxX: maxX,
               lineBarsData: [
@@ -330,44 +497,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   sideTitles: SideTitles(
                     showTitles: true,
                     reservedSize: 32,
+                    interval: bottomInterval,
                     getTitlesWidget: (value, meta) {
-                      final int idx = value.toInt();
-                      String text = '';
-                      if (_selectedRange == '24h') {
-                        final h24 = sensor.history24h;
-                        final step = (h24.length / 5).ceil().clamp(1, 10);
-                        if (idx % step == 0 && idx < h24.length) {
-                          final item = h24[idx];
-                          if (item['timestamp'] != null) {
-                            final dt = DateTime.fromMillisecondsSinceEpoch(item['timestamp']);
-                            text = '${dt.hour.toString().padLeft(2, '0')}:00';
-                          } else {
-                            text = '$idx:00';
-                          }
-                        }
-                      } else if (_selectedRange == '7 Days') {
-                        final h7d = sensor.history7d;
-                        final step = (h7d.length / 7).ceil().clamp(1, 10);
-                        if (idx % step == 0 && idx < h7d.length) {
-                          final item = h7d[idx];
-                          if (item['timestamp'] != null) {
-                            final dt = DateTime.fromMillisecondsSinceEpoch(item['timestamp']);
-                            const dayNames = ['จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.'];
-                            text = dayNames[(dt.weekday - 1) % 7];
-                          } else {
-                            const days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
-                            if (idx < days.length) text = days[idx];
-                          }
-                        }
-                      } else if (_selectedRange == 'Live') {
-                        if (idx % 5 == 0) {
-                          text = '${idx}s';
-                        }
-                      }
+                      final text = getBottomTitle(value);
                       if (text.isEmpty) return const SizedBox.shrink();
                       return Padding(
                         padding: const EdgeInsets.only(top: 8.0),
-                        child: Text(text, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+                        child: Text(
+                          text,
+                          style: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.w500),
+                        ),
                       );
                     },
                   ),
@@ -375,7 +514,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 leftTitles: AxisTitles(
                   sideTitles: SideTitles(
                     showTitles: true,
-                    interval: 50,
+                    interval: (maxY / 4).clamp(20.0, 100.0),
                     reservedSize: 36,
                     getTitlesWidget: (value, meta) {
                       return Text('${value.toInt()}', style: const TextStyle(color: Colors.grey, fontSize: 10));
@@ -390,15 +529,25 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       final int idx = spot.x.toInt();
                       String timeLabel = '';
                       if (_selectedRange == '24h' && idx < sensor.history24h.length) {
-                        final dt = DateTime.fromMillisecondsSinceEpoch(sensor.history24h[idx]['timestamp']);
-                        timeLabel = ' (${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.)';
+                        final ts = sensor.history24h[idx]['timestamp'];
+                        if (ts != null) {
+                          final dt = DateTime.fromMillisecondsSinceEpoch(ts);
+                          timeLabel = '\nเวลา ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น. (${dt.day}/${dt.month})';
+                        }
                       } else if (_selectedRange == '7 Days' && idx < sensor.history7d.length) {
-                        final dt = DateTime.fromMillisecondsSinceEpoch(sensor.history7d[idx]['timestamp']);
-                        timeLabel = ' (${dt.day}/${dt.month})';
+                        final ts = sensor.history7d[idx]['timestamp'];
+                        if (ts != null) {
+                          final dt = DateTime.fromMillisecondsSinceEpoch(ts);
+                          const dayNames = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
+                          final dayName = dayNames[(dt.weekday - 1) % 7];
+                          timeLabel = '\n$dayNameที่ ${dt.day}/${dt.month} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
+                        }
+                      } else if (_selectedRange == 'Live') {
+                        timeLabel = ' (${idx}s)';
                       }
                       return LineTooltipItem(
                         'ระดับน้ำ: ${spot.y.toStringAsFixed(1)} ซม.$timeLabel',
-                        const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                        const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
                       );
                     }).toList();
                   },
@@ -413,91 +562,147 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
-  Widget _buildSmartPredictionCard(BuildContext context, SensorProvider sensor) {
-    final dev = sensor.currentDevice;
-    if (dev == null) return const SizedBox.shrink();
+
+
+  Widget _buildAutoLoggingStatusCard(BuildContext context, SensorProvider sensor) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dev = sensor.currentDevice;
+    final bool isOnline = dev?.isDeviceOnline ?? false;
+    final int count24h = sensor.history24h.length;
+    final int count7d = sensor.history7d.length;
+
+    // หาเวลาที่บันทึกจุดล่าสุด
+    String lastRecordTimeStr = 'กำลังรับข้อมูล...';
+    if (sensor.history24h.isNotEmpty) {
+      final lastTs = sensor.history24h.last['timestamp'];
+      if (lastTs is num) {
+        final dt = DateTime.fromMillisecondsSinceEpoch(lastTs.toInt());
+        lastRecordTimeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
+      }
+    } else if (dev?.lastDataReceived != null) {
+      final dt = dev!.lastDataReceived!;
+      lastRecordTimeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
+    }
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(20),
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: dev.trendColor.withValues(alpha: 0.35),
+          color: isOnline ? Colors.green.withValues(alpha: 0.3) : (isDark ? Colors.white10 : Colors.black12),
           width: 1.2,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: dev.trendColor.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.auto_awesome_rounded, color: dev.trendColor, size: 20),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: (isOnline ? Colors.green : Colors.blueAccent).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.cloud_sync_rounded,
+                      color: isOnline ? Colors.green : Colors.blueAccent,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'บันทึกสถิติ 24/7 อัตโนมัติจากอุปกรณ์',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                      ),
+                      Text(
+                        'บันทึกผ่านเซนเซอร์ตลอดเวลาโดยไม่ต้องกดบันทึกเอง',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isOnline
+                      ? Colors.green.withValues(alpha: 0.15)
+                      : Colors.orange.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isOnline ? Colors.green.withValues(alpha: 0.4) : Colors.orange.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('การวิเคราะห์ & คาดการณ์แนวโน้ม (Smart Forecast)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: isOnline ? Colors.green : Colors.orange,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
                     Text(
-                      dev.trendStatusText,
-                      style: TextStyle(fontSize: 11.5, color: dev.trendColor, fontWeight: FontWeight.w600),
+                      isOnline ? 'ออนไลน์ 24/7' : 'ออฟไลน์',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: isOnline ? Colors.green : Colors.orange,
+                      ),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _buildPredictMetric(
-                  label: 'ความเร็วการขึ้น/ลง',
-                  value: '${dev.risingSpeed >= 0 ? '+' : ''}${dev.risingSpeed.toStringAsFixed(1)} ซม./ชม.',
-                  icon: dev.trendIcon,
-                  color: dev.trendColor,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildPredictMetric(
-                  label: 'ระดับแบตเตอรี่',
-                  value: '${dev.batteryPercent}% (${dev.batteryVoltage.toStringAsFixed(1)}V)',
-                  icon: dev.batteryIcon,
-                  color: dev.batteryColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: dev.trendColor.withValues(alpha: 0.08),
+              color: isDark ? const Color(0xFF0F172A) : Colors.grey.shade50,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                Icon(Icons.timer_outlined, color: dev.trendColor, size: 16),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    dev.estimatedTimeToDangerText,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: dev.trendColor,
-                    ),
-                  ),
+                _buildAutoLogStatItem(
+                  label: 'จุดบันทึก 24 ชม.',
+                  value: '$count24h จุด',
+                  icon: Icons.history_toggle_off_rounded,
+                  color: Colors.blueAccent,
+                ),
+                Container(width: 1, height: 26, color: isDark ? Colors.white12 : Colors.grey.shade300),
+                _buildAutoLogStatItem(
+                  label: 'สถิติ 7 วัน',
+                  value: '$count7d จุด',
+                  icon: Icons.calendar_view_week_rounded,
+                  color: Colors.purpleAccent,
+                ),
+                Container(width: 1, height: 26, color: isDark ? Colors.white12 : Colors.grey.shade300),
+                _buildAutoLogStatItem(
+                  label: 'บันทึกล่าสุด',
+                  value: lastRecordTimeStr,
+                  icon: Icons.check_circle_rounded,
+                  color: Colors.green,
                 ),
               ],
             ),
@@ -507,33 +712,25 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
-  Widget _buildPredictMetric({required String label, required String value, required IconData icon, required Color color}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-          const SizedBox(height: 2),
-          Row(
-            children: [
-              Icon(icon, color: color, size: 14),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  value,
-                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: color),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+  Widget _buildAutoLogStatItem({
+    required String label,
+    required String value,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 4),
+            Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+      ],
     );
   }
 

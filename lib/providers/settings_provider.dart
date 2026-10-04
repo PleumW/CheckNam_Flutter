@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/audio_alarm_service.dart';
 
 enum WidgetSizeMode { full, compact }
 
@@ -52,6 +53,8 @@ class SettingsProvider with ChangeNotifier {
   String _appLanguage = 'TH';
   bool _soundEnabled = true;
   bool _vibrationEnabled = true;
+  bool _proximityAlertEnabled = true;
+  double _proximityAlertRadiusMeters = 500.0;
 
   List<DashboardWidgetConfig> _dashboardWidgets = _getDefaultWidgetList();
 
@@ -63,6 +66,8 @@ class SettingsProvider with ChangeNotifier {
   String get appLanguage => _appLanguage;
   bool get soundEnabled => _soundEnabled;
   bool get vibrationEnabled => _vibrationEnabled;
+  bool get proximityAlertEnabled => _proximityAlertEnabled;
+  double get proximityAlertRadiusMeters => _proximityAlertRadiusMeters;
   List<DashboardWidgetConfig> get dashboardWidgets => _dashboardWidgets;
 
   static List<DashboardWidgetConfig> _getDefaultWidgetList() {
@@ -86,9 +91,16 @@ class SettingsProvider with ChangeNotifier {
     
     if (prefs.containsKey('soundEnabled')) {
       _soundEnabled = prefs.getBool('soundEnabled')!;
+      AudioAlarmService().setAlarmEnabled(_soundEnabled);
     }
     if (prefs.containsKey('vibrationEnabled')) {
       _vibrationEnabled = prefs.getBool('vibrationEnabled')!;
+    }
+    if (prefs.containsKey('proximityAlertEnabled')) {
+      _proximityAlertEnabled = prefs.getBool('proximityAlertEnabled')!;
+    }
+    if (prefs.containsKey('proximityAlertRadiusMeters')) {
+      _proximityAlertRadiusMeters = prefs.getDouble('proximityAlertRadiusMeters')!;
     }
 
     final savedLayoutJson = prefs.getString('dashboardLayoutConfig');
@@ -176,6 +188,7 @@ class SettingsProvider with ChangeNotifier {
     _soundEnabled = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('soundEnabled', value);
+    AudioAlarmService().setAlarmEnabled(value);
     notifyListeners();
   }
 
@@ -183,6 +196,20 @@ class SettingsProvider with ChangeNotifier {
     _vibrationEnabled = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('vibrationEnabled', value);
+    notifyListeners();
+  }
+
+  Future<void> toggleProximityAlert(bool value) async {
+    _proximityAlertEnabled = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('proximityAlertEnabled', value);
+    notifyListeners();
+  }
+
+  Future<void> updateProximityRadius(double meters) async {
+    _proximityAlertRadiusMeters = meters;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('proximityAlertRadiusMeters', meters);
     notifyListeners();
   }
 }
