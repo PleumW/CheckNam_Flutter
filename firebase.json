@@ -1,1 +1,28 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"water-flood-iot","appId":"1:70556919679:android:8a2e16b0e09de5c0965c4a","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"water-flood-iot","configurations":{"android":"1:70556919679:android:8a2e16b0e09de5c0965c4a","ios":"1:70556919679:ios:c78ec97c59cd7e3e965c4a","macos":"1:70556919679:ios:c78ec97c59cd7e3e965c4a","web":"1:70556919679:web:59de19cb585c9d8c965c4a","windows":"1:70556919679:web:9d6fc74974807fcb965c4a"}}}}}}
+{
+  "functions": {
+    "source": "functions"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "water-flood-iot",
+          "appId": "1:70556919679:android:8a2e16b0e09de5c0965c4a",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "water-flood-iot",
+          "configurations": {
+            "android": "1:70556919679:android:8a2e16b0e09de5c0965c4a",
+            "ios": "1:70556919679:ios:c78ec97c59cd7e3e965c4a",
+            "macos": "1:70556919679:ios:c78ec97c59cd7e3e965c4a",
+            "web": "1:70556919679:web:59de19cb585c9d8c965c4a",
+            "windows": "1:70556919679:web:9d6fc74974807fcb965c4a"
+          }
+        }
+      }
+    }
+  }
+}

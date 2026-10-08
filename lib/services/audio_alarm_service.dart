@@ -103,6 +103,31 @@ class AudioAlarmService with ChangeNotifier {
         playWebSiren(true);
       }
 
+      if (!kIsWeb) {
+        try {
+          await _player.setAudioContext(
+            AudioContext(
+              android: const AudioContextAndroid(
+                isSpeakerphoneOn: true,
+                stayAwake: true,
+                contentType: AndroidContentType.sonification,
+                usageType: AndroidUsageType.alarm,
+                audioFocus: AndroidAudioFocus.gainTransientExclusive,
+              ),
+              iOS: AudioContextIOS(
+                category: AVAudioSessionCategory.playback,
+                options: {
+                  AVAudioSessionOptions.duckOthers,
+                  AVAudioSessionOptions.defaultToSpeaker,
+                },
+              ),
+            ),
+          );
+        } catch (e) {
+          debugPrint('[AudioAlarmService] AudioContext config error: $e');
+        }
+      }
+
       await _player.setReleaseMode(ReleaseMode.loop);
       await _player.setVolume(1.0);
       await _player.play(AssetSource('sounds/siren.wav'));
@@ -123,6 +148,18 @@ class AudioAlarmService with ChangeNotifier {
         SystemSound.play(SystemSoundType.alert);
       } catch (_) {}
     }
+  }
+
+  /// เล่นเสียงไซเรนทดสอบชั่วคราว (เช่น 3 วินาที) เพื่อตรวจสอบลำโพงและระดับเสียง
+  Future<void> playTestSiren({Duration duration = const Duration(seconds: 3)}) async {
+    final prevEnabled = _isAlarmEnabled;
+    _isAlarmEnabled = true;
+    await startSiren();
+    Timer(duration, () async {
+      await stopSiren();
+      _isAlarmEnabled = prevEnabled;
+      notifyListeners();
+    });
   }
 
   /// หยุดเสียงไซเรน (แต่ยังคงจำสถานะ _isAlarmEnabled ตามที่ผู้ใช้เปิดไว้)

@@ -60,49 +60,58 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                 tabs: [
                   const Tab(
                     height: 32,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.memory_rounded, size: 15),
-                        SizedBox(width: 4),
-                        Text('อุปกรณ์'),
-                      ],
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.memory_rounded, size: 15),
+                          SizedBox(width: 4),
+                          Text('อุปกรณ์'),
+                        ],
+                      ),
                     ),
                   ),
                   const Tab(
                     height: 32,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.report_problem_rounded, size: 15),
-                        SizedBox(width: 4),
-                        Text('รายงาน'),
-                      ],
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.report_problem_rounded, size: 15),
+                          SizedBox(width: 4),
+                          Text('รายงาน'),
+                        ],
+                      ),
                     ),
                   ),
                   Tab(
                     height: 32,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.sos_rounded, size: 15, color: Colors.redAccent),
-                        const SizedBox(width: 4),
-                        const Text('SOS'),
-                        if (pendingSos > 0) ...[
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.sos_rounded, size: 15),
                           const SizedBox(width: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.redAccent,
-                              borderRadius: BorderRadius.circular(10),
+                          const Text('SOS'),
+                          if (pendingSos > 0) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '$pendingSos',
+                                style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                              ),
                             ),
-                            child: Text(
-                              '$pendingSos',
-                              style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
-                            ),
-                          ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ],
@@ -140,7 +149,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
             onPressed: () async {
-              await _dbRef.child('devices/$deviceId').remove();
+              await context.read<SensorProvider>().deleteDevice(deviceId);
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ลบอุปกรณ์ $name เรียบร้อยแล้ว')));
@@ -174,69 +183,119 @@ class _DeviceStatusTabState extends State<_DeviceStatusTab> with AutomaticKeepAl
     super.build(context);
 
     final sensorProvider = context.watch<SensorProvider>();
-    final devicesMap = sensorProvider.devices;
+    final devices = sensorProvider.uniqueDeviceList;
 
-        if (devicesMap.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.sensors_off_rounded, size: 56, color: Colors.grey.shade400),
-                  const SizedBox(height: 16),
-                  const Text('ยังไม่มีอุปกรณ์ในระบบ', style: TextStyle(color: Colors.grey, fontSize: 15, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-          );
-        }
-
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        final devices = devicesMap.values.toList();
-        int totalCount = devices.length;
-        int onlineCount = devices.where((d) => d.isDeviceOnline).length;
-        int offlineCount = totalCount - onlineCount;
-
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.06),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildSummaryItem('อุปกรณ์ทั้งหมด', '$totalCount', isDark ? Colors.white : Colors.black87),
-                  Container(width: 1, height: 26, color: Colors.grey.withValues(alpha: 0.2)),
-                  _buildSummaryItem('ออนไลน์', '$onlineCount', Colors.green),
-                  Container(width: 1, height: 26, color: Colors.grey.withValues(alpha: 0.2)),
-                  _buildSummaryItem('ออฟไลน์', '$offlineCount', Colors.grey.shade500),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-
-            Row(
-              children: [
-                const SizedBox(width: 4),
-                Text(
-                  'รายการอุปกรณ์',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13.5,
-                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+    if (devices.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.sensors_off_rounded, size: 56, color: Colors.grey.shade400),
+              const SizedBox(height: 16),
+              const Text('ยังไม่มีอุปกรณ์ในระบบ', style: TextStyle(color: Colors.grey, fontSize: 15, fontWeight: FontWeight.w600)),
+              if (sensorProvider.deletedDeviceIds.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
+                  onPressed: () async {
+                    await sensorProvider.restoreAllDevices();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('คืนค่าอุปกรณ์เริ่มต้นเรียบร้อยแล้ว')));
+                    }
+                  },
+                  icon: const Icon(Icons.restore_rounded),
+                  label: const Text('คืนค่าอุปกรณ์เริ่มต้นทั้งหมด'),
                 ),
               ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    int totalCount = devices.length;
+    int onlineCount = devices.where((d) => d.isDeviceOnline).length;
+    int offlineCount = totalCount - onlineCount;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.06),
             ),
-            const SizedBox(height: 10),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              Expanded(child: _buildSummaryItem('อุปกรณ์ทั้งหมด', '$totalCount', isDark ? Colors.white : Colors.black87)),
+              Container(width: 1, height: 26, color: Colors.grey.withValues(alpha: 0.2)),
+              Expanded(child: _buildSummaryItem('ออนไลน์', '$onlineCount', Colors.green)),
+              Container(width: 1, height: 26, color: Colors.grey.withValues(alpha: 0.2)),
+              Expanded(child: _buildSummaryItem('ออฟไลน์', '$offlineCount', Colors.grey.shade500)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+
+        Row(
+          children: [
+            const SizedBox(width: 4),
+            Text(
+              'รายการอุปกรณ์',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13.5,
+                color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+              ),
+            ),
+            const Spacer(),
+            if (sensorProvider.deletedDeviceIds.isNotEmpty)
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: Colors.blueAccent,
+                ),
+                onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('คืนค่าอุปกรณ์ทั้งหมด'),
+                      content: Text('คุณต้องการคืนค่าอุปกรณ์ที่ลบไปทั้งหมด (${sensorProvider.deletedDeviceIds.length} อุปกรณ์) กลับมาใช่หรือไม่?'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, foregroundColor: Colors.white),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('ยืนยันคืนค่า'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true && context.mounted) {
+                    await sensorProvider.restoreAllDevices();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('คืนค่าอุปกรณ์ทั้งหมดเรียบร้อยแล้ว')));
+                    }
+                  }
+                },
+                icon: const Icon(Icons.restore_rounded, size: 16),
+                label: Text('คืนค่าเริ่มต้น (${sensorProvider.deletedDeviceIds.length})', style: const TextStyle(fontSize: 12)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
 
             ...devices.map((device) {
               final bool isOnline = device.isDeviceOnline;
@@ -338,6 +397,8 @@ class _DeviceStatusTabState extends State<_DeviceStatusTab> with AutomaticKeepAl
                               IconButton(
                                 icon: const Icon(Icons.delete_outline_rounded, color: Colors.grey, size: 20),
                                 splashRadius: 18,
+                                padding: const EdgeInsets.all(6),
+                                constraints: const BoxConstraints(),
                                 onPressed: () {
                                   widget.onDeleteDevice(device.id, device.name);
                                 },
@@ -410,7 +471,7 @@ class _DeviceStatusTabState extends State<_DeviceStatusTab> with AutomaticKeepAl
                       }),
                       // ติดตั้งเซนเซอร์วัดระดับน้ำ
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         margin: const EdgeInsets.only(bottom: 6),
                         decoration: BoxDecoration(
                           color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.3) : Colors.grey.shade50,
@@ -418,49 +479,22 @@ class _DeviceStatusTabState extends State<_DeviceStatusTab> with AutomaticKeepAl
                           border: Border.all(color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
                         ),
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: [
-                                Icon(Icons.water_drop_rounded, size: 16, color: device.hasWaterLevelSensor ? Colors.blueAccent : Colors.grey),
-                                const SizedBox(width: 8),
-                                const Text('ติดตั้งเซนเซอร์วัดระดับน้ำ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-                              ],
+                            Icon(Icons.water_drop_rounded, size: 16, color: device.hasWaterLevelSensor ? Colors.blueAccent : Colors.grey),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'ติดตั้งเซนเซอร์วัดระดับน้ำ',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
+                            const SizedBox(width: 8),
                             Switch.adaptive(
                               value: device.hasWaterLevelSensor,
                               activeThumbColor: Colors.blueAccent,
                               onChanged: (val) {
                                 context.read<SensorProvider>().toggleWaterLevelSensorInstalled(device.id, val);
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                      // ติดตั้งเซนเซอร์วัดไฟฟ้ารั่ว
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        margin: const EdgeInsets.only(bottom: 6),
-                        decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.3) : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.bolt_rounded, size: 16, color: device.hasCurrentSensor ? Colors.blueAccent : Colors.grey),
-                                const SizedBox(width: 8),
-                                const Text('ติดตั้งเซนเซอร์วัดไฟฟ้ารั่ว', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-                              ],
-                            ),
-                            Switch.adaptive(
-                              value: device.hasCurrentSensor,
-                              activeThumbColor: Colors.blueAccent,
-                              onChanged: (val) {
-                                context.read<SensorProvider>().toggleCurrentSensorInstalled(device.id, val);
                               },
                             ),
                           ],
@@ -479,10 +513,17 @@ class _DeviceStatusTabState extends State<_DeviceStatusTab> with AutomaticKeepAl
 
   Widget _buildSummaryItem(String label, String value, Color color) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+        ),
         const SizedBox(height: 2),
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        ),
       ],
     );
   }
@@ -520,8 +561,11 @@ class _DeviceStatusTabState extends State<_DeviceStatusTab> with AutomaticKeepAl
                 fontWeight: FontWeight.w500,
                 color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
               ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
             decoration: BoxDecoration(
@@ -601,7 +645,20 @@ class _ReportsTabState extends State<_ReportsTab> with AutomaticKeepAliveClientM
         final reports = data.entries.map((e) {
           final Map<dynamic, dynamic> val = (e.value is Map<dynamic, dynamic>) ? e.value as Map<dynamic, dynamic> : {};
           return {'key': e.key, ...val};
-        }).toList();
+        }).where((r) => r['type'] != 'sos').toList();
+
+        if (reports.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle_outline_rounded, size: 64, color: Colors.grey.shade400),
+                const SizedBox(height: 12),
+                const Text('ไม่มีรายงานแจ้งเหตุคงค้าง', style: TextStyle(color: Colors.grey, fontSize: 15)),
+              ],
+            ),
+          );
+        }
 
         reports.sort((a, b) {
           final int tsA = (a['timestamp'] is num) ? (a['timestamp'] as num).toInt() : 0;
@@ -724,8 +781,19 @@ class _SosRequestsTab extends StatefulWidget {
   State<_SosRequestsTab> createState() => _SosRequestsTabState();
 }
 
-class _SosRequestsTabState extends State<_SosRequestsTab> {
+class _SosRequestsTabState extends State<_SosRequestsTab> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   DateTime? _selectedDate;
+  late Stream<DatabaseEvent> _sosStream;
+
+  @override
+  void initState() {
+    super.initState();
+    // Direct stream subscription to ensure fresh, persistent real-time updates across tab switching
+    _sosStream = widget.dbRef.child('sos_requests').onValue;
+  }
 
   String _formatDateThai(DateTime d) {
     const months = [
@@ -809,12 +877,14 @@ class _SosRequestsTabState extends State<_SosRequestsTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     final sensor = context.watch<SensorProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final now = DateTime.now();
 
     return StreamBuilder<DatabaseEvent>(
-      stream: widget.stream,
+      stream: _sosStream,
       builder: (context, snapshot) {
         List<SosRequest> allRequests = [];
         if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
@@ -853,9 +923,52 @@ class _SosRequestsTabState extends State<_SosRequestsTab> {
             ? allRequests
             : allRequests.where((req) => _isSameDay(req.timestamp, _selectedDate!)).toList();
 
+        final int pendingCount = allRequests.where((req) => req.status == 'pending').length;
+
         return Column(
           children: [
-            // แถบเลือกวันที่และตัวกรองประวัติ SOS
+            // การแจ้งเตือนสถานะ SOS คงค้างในส่วน SOS (Alert Banner)
+            if (pendingCount > 0)
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.redAccent.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: Colors.redAccent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.notifications_active_rounded, color: Colors.white, size: 16),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'แจ้งเตือน: มีเหตุฉุกเฉินรอการช่วยเหลือ $pendingCount รายการ',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Colors.redAccent),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'โปรดประสานงานช่วยเหลือหรือตรวจสอบพิกัดบนแผนที่ทันที',
+                            style: TextStyle(fontSize: 10.5, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // แถบเลือกวันที่และตัวกรองประวัติ SOS (ป้องกัน Overflow ด้วยแนวนอน)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
@@ -868,77 +981,88 @@ class _SosRequestsTabState extends State<_SosRequestsTab> {
               ),
               child: Row(
                 children: [
-                  // ปุ่มเลือกวันที่ดูประวัติ
-                  InkWell(
-                    onTap: () => _pickDate(context),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: _selectedDate != null
-                            ? Colors.blueAccent.withValues(alpha: 0.15)
-                            : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey.shade100),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _selectedDate != null ? Colors.blueAccent : Colors.grey.shade300,
-                        ),
-                      ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.calendar_month_rounded,
-                            size: 16,
-                            color: _selectedDate != null ? Colors.blueAccent : Colors.grey,
+                          // ปุ่มเลือกวันที่ดูประวัติ
+                          InkWell(
+                            onTap: () => _pickDate(context),
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: _selectedDate != null
+                                    ? Colors.blueAccent.withValues(alpha: 0.15)
+                                    : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey.shade100),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: _selectedDate != null ? Colors.blueAccent : Colors.grey.shade300,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.calendar_month_rounded,
+                                    size: 16,
+                                    color: _selectedDate != null ? Colors.blueAccent : Colors.grey,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _selectedDate == null ? 'เลือกวันที่ดูประวัติ' : _formatDateThai(_selectedDate!),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: _selectedDate != null ? Colors.blueAccent : (isDark ? Colors.white : Colors.black87),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Chip: ทั้งหมด
+                          FilterChip(
+                            label: const Text('ทั้งหมด', style: TextStyle(fontSize: 11)),
+                            selected: _selectedDate == null,
+                            onSelected: (_) {
+                              setState(() => _selectedDate = null);
+                            },
+                            selectedColor: Colors.blueAccent.withValues(alpha: 0.2),
+                            checkmarkColor: Colors.blueAccent,
+                            labelStyle: TextStyle(
+                              color: _selectedDate == null ? Colors.blueAccent : Colors.grey,
+                              fontWeight: _selectedDate == null ? FontWeight.bold : FontWeight.normal,
+                            ),
+                            padding: EdgeInsets.zero,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
                           const SizedBox(width: 6),
-                          Text(
-                            _selectedDate == null ? 'เลือกวันที่ดูประวัติ' : _formatDateThai(_selectedDate!),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: _selectedDate != null ? Colors.blueAccent : (isDark ? Colors.white : Colors.black87),
+                          // Chip: วันนี้
+                          FilterChip(
+                            label: const Text('วันนี้', style: TextStyle(fontSize: 11)),
+                            selected: _selectedDate != null && _isSameDay(_selectedDate!, now),
+                            onSelected: (_) {
+                              setState(() => _selectedDate = DateTime(now.year, now.month, now.day));
+                            },
+                            selectedColor: Colors.blueAccent.withValues(alpha: 0.2),
+                            checkmarkColor: Colors.blueAccent,
+                            labelStyle: TextStyle(
+                              color: (_selectedDate != null && _isSameDay(_selectedDate!, now)) ? Colors.blueAccent : Colors.grey,
+                              fontWeight: (_selectedDate != null && _isSameDay(_selectedDate!, now)) ? FontWeight.bold : FontWeight.normal,
                             ),
+                            padding: EdgeInsets.zero,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
                         ],
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Chip: ทั้งหมด
-                  FilterChip(
-                    label: const Text('ทั้งหมด', style: TextStyle(fontSize: 11)),
-                    selected: _selectedDate == null,
-                    onSelected: (_) {
-                      setState(() => _selectedDate = null);
-                    },
-                    selectedColor: Colors.blueAccent.withValues(alpha: 0.2),
-                    checkmarkColor: Colors.blueAccent,
-                    labelStyle: TextStyle(
-                      color: _selectedDate == null ? Colors.blueAccent : Colors.grey,
-                      fontWeight: _selectedDate == null ? FontWeight.bold : FontWeight.normal,
-                    ),
-                    padding: EdgeInsets.zero,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  const SizedBox(width: 6),
-                  // Chip: วันนี้
-                  FilterChip(
-                    label: const Text('วันนี้', style: TextStyle(fontSize: 11)),
-                    selected: _selectedDate != null && _isSameDay(_selectedDate!, now),
-                    onSelected: (_) {
-                      setState(() => _selectedDate = DateTime(now.year, now.month, now.day));
-                    },
-                    selectedColor: Colors.blueAccent.withValues(alpha: 0.2),
-                    checkmarkColor: Colors.blueAccent,
-                    labelStyle: TextStyle(
-                      color: (_selectedDate != null && _isSameDay(_selectedDate!, now)) ? Colors.blueAccent : Colors.grey,
-                      fontWeight: (_selectedDate != null && _isSameDay(_selectedDate!, now)) ? FontWeight.bold : FontWeight.normal,
-                    ),
-                    padding: EdgeInsets.zero,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  const Spacer(),
                   // จำนวนรายการ
                   Text(
                     '${filteredRequests.length} รายการ',
@@ -1017,29 +1141,39 @@ class _SosRequestsTabState extends State<_SosRequestsTab> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: statusColor.withValues(alpha: 0.15),
-                                          shape: BoxShape.circle,
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: statusColor.withValues(alpha: 0.15),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(Icons.sos_rounded, color: statusColor, size: 20),
                                         ),
-                                        child: Icon(Icons.sos_rounded, color: statusColor, size: 20),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(req.userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                          Text(timeStr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                                        ],
-                                      ),
-                                    ],
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                req.userName,
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              Text(timeStr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
+                                  const SizedBox(width: 8),
                                   Row(
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -1048,7 +1182,10 @@ class _SosRequestsTabState extends State<_SosRequestsTab> {
                                           borderRadius: BorderRadius.circular(12),
                                           border: Border.all(color: statusColor.withValues(alpha: 0.4)),
                                         ),
-                                        child: Text(statusLabel, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 11)),
+                                        child: Text(
+                                          statusLabel,
+                                          style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 11),
+                                        ),
                                       ),
                                       const SizedBox(width: 4),
                                       IconButton(
@@ -1074,6 +1211,18 @@ class _SosRequestsTabState extends State<_SosRequestsTab> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text('เหตุฉุกเฉิน: ${req.situation}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.redAccent)),
+                                    if (req.nickname.isNotEmpty) ...[
+                                      const SizedBox(height: 3),
+                                      Text('ชื่อเล่น: ${req.nickname}', style: const TextStyle(fontSize: 11.5, color: Colors.grey)),
+                                    ],
+                                    if (req.englishName.isNotEmpty) ...[
+                                      const SizedBox(height: 3),
+                                      Text('ชื่อสากล (EN): ${req.englishName}', style: const TextStyle(fontSize: 11.5, color: Colors.grey)),
+                                    ],
+                                    if (req.dob.isNotEmpty) ...[
+                                      const SizedBox(height: 3),
+                                      Text('วันเกิด (ค.ศ.): ${req.dob}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                    ],
                                     if (req.note.isNotEmpty) ...[
                                       const SizedBox(height: 4),
                                       Text('รายละเอียด: ${req.note}', style: const TextStyle(fontSize: 12)),
@@ -1083,7 +1232,14 @@ class _SosRequestsTabState extends State<_SosRequestsTab> {
                                       children: [
                                         const Icon(Icons.location_on_rounded, size: 14, color: Colors.blueAccent),
                                         const SizedBox(width: 4),
-                                        Text('พิกัด GPS: ${req.lat.toStringAsFixed(6)}, ${req.lng.toStringAsFixed(6)}', style: const TextStyle(fontSize: 11, color: Colors.blueAccent, fontWeight: FontWeight.w500)),
+                                        Expanded(
+                                          child: Text(
+                                            'พิกัด GPS: ${req.lat.toStringAsFixed(6)}, ${req.lng.toStringAsFixed(6)}',
+                                            style: const TextStyle(fontSize: 11, color: Colors.blueAccent, fontWeight: FontWeight.w500),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ],
@@ -1099,42 +1255,48 @@ class _SosRequestsTabState extends State<_SosRequestsTab> {
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: Colors.blueAccent,
                                         foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(vertical: 10),
+                                        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                         elevation: 0,
                                       ),
                                       icon: const Icon(Icons.navigation_rounded, size: 16),
-                                      label: const Text('นำทาง', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                      label: const FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text('นำทาง', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                      ),
                                       onPressed: () => _openGoogleMapsNavigation(req.lat, req.lng),
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: 6),
                                   // ปุ่มโทรหา
-                                  if (req.phoneNumber.isNotEmpty) ...[
+                                  if (req.phoneNumber.isNotEmpty && req.phoneNumber != '-') ...[
                                     Expanded(
                                       flex: 3,
                                       child: OutlinedButton.icon(
                                         style: OutlinedButton.styleFrom(
                                           foregroundColor: Colors.green,
                                           side: const BorderSide(color: Colors.green),
-                                          padding: const EdgeInsets.symmetric(vertical: 10),
+                                          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
                                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
                                         icon: const Icon(Icons.phone, size: 16),
-                                        label: const Text('โทร', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                        label: const FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: Text('โทร', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                        ),
                                         onPressed: () async {
                                           final uri = Uri.parse('tel:${req.phoneNumber}');
                                           if (await canLaunchUrl(uri)) await launchUrl(uri);
                                         },
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 6),
                                   ],
                                   // ตัวเลือกสถานะ
                                   Expanded(
                                     flex: 4,
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
                                         color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade200,
                                         borderRadius: BorderRadius.circular(12),
@@ -1145,9 +1307,9 @@ class _SosRequestsTabState extends State<_SosRequestsTab> {
                                           isDense: true,
                                           isExpanded: true,
                                           items: const [
-                                            DropdownMenuItem(value: 'pending', child: Text('รอดำเนินการ', style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold))),
-                                            DropdownMenuItem(value: 'in_progress', child: Text('กำลังช่วยเหลือ', style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold))),
-                                            DropdownMenuItem(value: 'resolved', child: Text('ช่วยเหลือแล้ว', style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold))),
+                                            DropdownMenuItem(value: 'pending', child: FittedBox(fit: BoxFit.scaleDown, child: Text('รอดำเนินการ', style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)))),
+                                            DropdownMenuItem(value: 'in_progress', child: FittedBox(fit: BoxFit.scaleDown, child: Text('กำลังช่วยเหลือ', style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold)))),
+                                            DropdownMenuItem(value: 'resolved', child: FittedBox(fit: BoxFit.scaleDown, child: Text('ช่วยเหลือแล้ว', style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold)))),
                                           ],
                                           onChanged: (val) {
                                             if (val != null) {

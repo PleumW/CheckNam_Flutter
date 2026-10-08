@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 
 class SafetyGuideScreen extends StatelessWidget {
-  final String type; // 'leakage' or 'flood'
+  final String type; // 'flood', 'overflow', or 'general'
 
-  const SafetyGuideScreen({super.key, required this.type});
+  const SafetyGuideScreen({super.key, this.type = 'flood'});
 
   @override
   Widget build(BuildContext context) {
-    bool isLeakage = type == 'leakage';
     const Color bgColor = Color(0xFF111625); // Dark navy background
     const Color cardColor = Color(0xFF1E2433); // Dark navy card
 
@@ -16,7 +15,7 @@ class SafetyGuideScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: bgColor,
         elevation: 0,
-        title: Text(isLeakage ? 'ขั้นตอนเมื่อพบไฟฟ้ารั่ว' : 'ขั้นตอนเมื่อเกิดน้ำท่วม'),
+        title: const Text('ขั้นตอนปฏิบัติตัวเมื่อเกิดภัยน้ำท่วม'),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
@@ -27,24 +26,24 @@ class SafetyGuideScreen extends StatelessWidget {
               color: cardColor,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
+            child: const Row(
               children: [
-                const Icon(Icons.warning, color: Colors.redAccent, size: 32),
-                const SizedBox(width: 16),
+                Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 32),
+                SizedBox(width: 16),
                 Expanded(
                   child: Text(
-                    isLeakage ? 'อันตราย! ตรวจพบความเสี่ยงสูง' : 'คำเตือน ระดับน้ำสูงกว่าปกติ',
-                    style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16),
+                    'คำเตือน: เฝ้าระวังระดับน้ำและเตรียมพร้อมรับมือ',
+                    style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 24),
-          _buildStep(context, '1', isLeakage ? 'อย่าสัมผัสน้ำ' : 'ขนของขึ้นที่สูง', isLeakage ? 'ห้ามเข้าใกล้หรือสัมผัสน้ำในบริเวณที่แจ้งเตือนว่ามีไฟฟ้ารั่ว' : 'ย้ายสิ่งของมีค่าและเครื่องใช้ไฟฟ้าขึ้นที่สูง', cardColor),
-          _buildStep(context, '2', 'ตัดกระแสไฟฟ้าหลัก', 'หากการทำได้ปลอดภัย ให้สับคัทเอาท์ตัดกระแสไฟฟ้า', cardColor),
-          _buildStep(context, '3', 'แจ้งเจ้าหน้าที่', 'ติดต่อการไฟฟ้าหรือหน่วยงานกู้ภัยในพื้นที่', cardColor),
-          _buildStep(context, '4', 'ช่วยเหลืออย่างถูกวิธี', 'หากมีผู้ประสบเหตุไฟดูด ห้ามใช้มือเปล่าสัมผัสตัวผู้บาดเจ็บ ให้ใช้ไม้ยาวเขี่ยสายไฟออก', cardColor),
+          _buildStep(context, '1', 'ขนของขึ้นที่สูง', 'ย้ายสิ่งของมีค่า เอกสารสำคัญ และอุปกรณ์ขึ้นชั้นบนหรือที่ปลอดภัย', cardColor),
+          _buildStep(context, '2', 'ตัดกระแสไฟฟ้าภายในบ้าน', 'หากน้ำเริ่มเข้าตัวบ้าน ให้สับคัทเอาท์ตัดวงจรไฟฟ้าชั้นล่างเพื่อความปลอดภัย', cardColor),
+          _buildStep(context, '3', 'ติดตามระดับน้ำจากสถานีตรวจวัดในพื้นที่', 'ตรวจสอบระดับน้ำและการแจ้งเตือนภัยจากสถานีตรวจวัด IoT ในรัศมีพื้นที่ของคุณผ่านแอปพลิเคชัน', cardColor),
+          _buildStep(context, '4', 'เตรียมเส้นทางอพยพ / ขอความช่วยเหลือ', 'หากระดับน้ำวิกฤต กดปุ่ม SOS ในแอพเพื่อส่งพิกัดฉุกเฉินให้เจ้าหน้าที่ทันที', cardColor),
           const SizedBox(height: 32),
           SizedBox(
             width: double.infinity,
@@ -58,7 +57,7 @@ class SafetyGuideScreen extends StatelessWidget {
                 ),
               ),
               icon: const Icon(Icons.phone),
-              label: const Text('โทรขอความช่วยเหลือ (191)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              label: const Text('โทรสายด่วนกู้ภัย (1669)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               onPressed: () {},
             ),
           )
@@ -80,8 +79,8 @@ class SafetyGuideScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
-              backgroundColor: Colors.amber, // Yellow circle
-              child: Text(number, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              backgroundColor: Colors.blueAccent,
+              child: Text(number, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(width: 16),
             Expanded(

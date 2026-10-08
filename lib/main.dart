@@ -31,19 +31,46 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  } catch (_) {}
   debugPrint("Handling a background message: ${message.messageId}");
+
+  try {
+    if (message.notification == null && message.data.isNotEmpty) {
+      await NotificationService().init();
+      final title = message.data['title'] ?? '🚨 แจ้งเตือนฉุกเฉิน SOS!';
+      final body = message.data['body'] ?? message.data['message'] ?? 'มีผู้ร้องขอความช่วยเหลือใหม่ในระบบ';
+      final bool isCritical = title.contains('วิกฤต') ||
+          title.contains('SOS') ||
+          title.contains('ฉุกเฉิน') ||
+          title.contains('อันตราย');
+      await NotificationService().showEmergencyNotification(
+        id: message.hashCode,
+        title: title,
+        body: body,
+        isCritical: isCritical,
+      );
+    }
+  } catch (e) {
+    debugPrint("Background notification error: $e");
+  }
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Local / Web Notifications reliably
+  try {
+    await NotificationService().init();
+  } catch (e) {
+    debugPrint("[NotificationService] Init error: $e");
+  }
+
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    
-    // Initialize Local / Web Notifications
-    await NotificationService().init();
     
     // Setup Firebase Messaging
     if (!kIsWeb) {
@@ -55,12 +82,12 @@ void main() async {
       announcement: false,
       badge: true,
       carPlay: false,
-      criticalAlert: true, // For flood alerts
+      criticalAlert: true, // For flood and SOS alerts
       provisional: false,
       sound: true,
     );
     
-    // Subscribe to topics (Only on native platforms)
+    // Subscribe to general flood alerts topic (Only on native platforms)
     if (!kIsWeb) {
       try {
         await messaging.subscribeToTopic('alerts');
@@ -74,13 +101,20 @@ void main() async {
       debugPrint("FCM Token: $token");
     } catch (_) {}
 
-    // Handle foreground messages
+    // Handle foreground messages (including SOS alerts)
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (message.notification != null) {
+      final title = message.notification?.title ?? message.data['title'] ?? '🚨 แจ้งเตือนฉุกเฉิน SOS';
+      final body = message.notification?.body ?? message.data['body'] ?? message.data['message'] ?? '';
+      final bool isCritical = title.contains('วิกฤต') ||
+          title.contains('SOS') ||
+          title.contains('ฉุกเฉิน') ||
+          title.contains('อันตราย');
+      if (title.isNotEmpty || body.isNotEmpty) {
         NotificationService().showEmergencyNotification(
           id: message.hashCode,
-          title: message.notification!.title ?? 'แจ้งเตือนจากส่วนกลาง',
-          body: message.notification!.body ?? '',
+          title: title,
+          body: body,
+          isCritical: isCritical,
         );
       }
     });
@@ -139,17 +173,39 @@ class MyApp extends StatelessWidget {
         '/system': (context) => const SystemScreen(),
         '/statistics': (context) => const StatisticsScreen(),
         '/alert_leakage': (context) => AlertScreen(
-              title: 'อันตราย! ตรวจพบกระแสไฟฟ้ารั่วไหลในน้ำ',
+              title: 'สถานะ : ระวังกระแสไฟฟ้ารั่ว',
               waterLevel: context.read<SensorProvider>().waterLevel.toInt().toString(),
               type: 'leakage',
             ),
         '/admin': (context) => const AdminManagementScreen(),
-        '/alert_flood': (context) => AlertScreen(
-              title: 'อันตราย! ระดับน้ำสูงเกินกำหนด',
-              waterLevel: context.read<SensorProvider>().waterLevel.toInt().toString(),
-              type: 'flood',
-            ),
-        '/guide_leakage': (context) => const SafetyGuideScreen(type: 'leakage'),
+        '/alert_flood': (context) {
+          final sensor = context.read<SensorProvider>();
+          final triggerDev = sensor.currentDevice ??
+              sensor.devices.values.firstWhere(
+                (d) => d.isFloodDanger,
+                orElse: () => sensor.devices.values.first,
+              );
+          final bool isEmerg = triggerDev.isFloodEmergency || triggerDev.waterLevel >= 50.0;
+          return AlertScreen(
+            title: isEmerg ? 'สถานะ : วิกฤตสูงสุด' : 'สถานะ : วิกฤต',
+            waterLevel: triggerDev.waterLevel.toInt().toString(),
+            type: 'flood',
+          );
+        },
+        '/alert_warning': (context) {
+          final sensor = context.read<SensorProvider>();
+          final triggerDev = sensor.currentDevice ??
+              sensor.devices.values.firstWhere(
+                (d) => d.isFloodWarning,
+                orElse: () => sensor.devices.values.first,
+              );
+          return AlertScreen(
+            title: 'สถานะ : เฝ้าระวัง',
+            waterLevel: triggerDev.waterLevel.toInt().toString(),
+            type: 'warning',
+          );
+        },
+        '/guide_leakage': (context) => const SafetyGuideScreen(type: 'flood'),
         '/guide_flood': (context) => const SafetyGuideScreen(type: 'flood'),
         '/simulator': (context) => const SimulatorScreen(),
         '/device_management': (context) => const DeviceManagementScreen(),

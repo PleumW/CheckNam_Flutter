@@ -5,10 +5,9 @@ import 'package:provider/provider.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../providers/location_provider.dart';
 import '../providers/sensor_provider.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import '../widgets/bottom_nav_bar.dart';
+import '../widgets/sos_emergency_modal.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -24,12 +23,11 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
   late Stream<DatabaseEvent> _devicesStream;
   late Stream<DatabaseEvent> _reportsStream;
   late Stream<DatabaseEvent> _postsStream;
+  late Stream<DatabaseEvent> _sosStream;
   late AnimationController _pulseController;
 
   bool _isSatellite = false;
-  bool _showRadar = false;
   bool _showTraffic = false;
-  String? _radarPath;
 
   @override
   void initState() {
@@ -42,30 +40,13 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     _devicesStream = _dbRef.child('devices').onValue;
     _reportsStream = _dbRef.child('admin_reports').onValue;
     _postsStream = _dbRef.child('community_posts').onValue;
-    _fetchRadarData();
+    _sosStream = _dbRef.child('sos_requests').onValue;
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
     super.dispose();
-  }
-
-  Future<void> _fetchRadarData() async {
-    try {
-      final response = await http.get(Uri.parse('https://api.rainviewer.com/public/weather-maps.json'));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final past = data['radar']['past'] as List;
-        if (past.isNotEmpty) {
-          setState(() {
-            _radarPath = past.last['path'];
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Error fetching radar data: $e');
-    }
   }
 
   String _calculateDistanceText(LatLng? userPos, LatLng targetPos) {
@@ -87,6 +68,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     final locationProvider = context.watch<LocationProvider>();
+    final sensor = context.watch<SensorProvider>();
     final LatLng center = locationProvider.currentPosition != null 
       ? LatLng(locationProvider.currentPosition!.latitude, locationProvider.currentPosition!.longitude)
       : const LatLng(13.7563, 100.5018); // Default to Bangkok
@@ -150,28 +132,53 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
         ),
         elevation: 0,
         actions: [
-          Container(
-            width: 78, // Extra mini width for dropdown
-            height: 28,
-            margin: const EdgeInsets.only(right: 12, top: 13, bottom: 13),
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.withValues(alpha: 0.25)),
-            ),
-            child: Consumer<SensorProvider>(
-              builder: (context, sensor, child) {
-                return DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    value: sensor.selectedDeviceId,
-                    icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.blue, size: 14),
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      color: Theme.of(context).textTheme.bodyLarge?.color,
-                      fontWeight: FontWeight.bold,
+          Consumer<SensorProvider>(
+            builder: (context, sensor, child) {
+              final uniqueList = sensor.uniqueDeviceList;
+              if (uniqueList.isEmpty) return const SizedBox.shrink();
+
+              final validIds = uniqueList.map((d) => d.id).toSet();
+              final selectedValue = validIds.contains(sensor.selectedDeviceId)
+                  ? sensor.selectedDeviceId
+                  : (validIds.contains(sensor.currentDevice?.id)
+                      ? sensor.currentDevice!.id
+                      : uniqueList.first.id);
+
+              final primaryColor = Theme.of(context).colorScheme.primary;
+
+              return Container(
+                margin: const EdgeInsets.only(right: 12, top: 10, bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: primaryColor.withValues(alpha: 0.35),
+                    width: 1.2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
                     ),
+                  ],
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: selectedValue,
+                    isDense: true,
+                    icon: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: primaryColor,
+                      size: 18,
+                    ),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).textTheme.bodyLarge?.color,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
                     onChanged: (String? newValue) async {
                       if (newValue != null) {
                         sensor.selectDevice(newValue);
@@ -184,20 +191,41 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                         }
                       }
                     },
-                    items: sensor.devices.values.map((device) {
+                    items: uniqueList.map((device) {
+                      final isSelected = device.id == selectedValue;
                       return DropdownMenuItem<String>(
                         value: device.id,
-                        child: Text(
-                          device.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 10.5),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: device.statusColor,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 135),
+                              child: Text(
+                                device.name,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     }).toList(),
                   ),
-                );
-              },
-            ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -210,236 +238,314 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
               return StreamBuilder<DatabaseEvent>(
                 stream: _postsStream,
                 builder: (context, postsSnapshot) {
-                  final Set<String> activePostKeys = {};
-                  if (postsSnapshot.hasData && postsSnapshot.data?.snapshot.value != null) {
-                    final postsVal = postsSnapshot.data!.snapshot.value;
-                    if (postsVal is Map) {
-                      postsVal.forEach((key, value) {
-                        if (key != null) {
-                          activePostKeys.add(key.toString());
+                  return StreamBuilder<DatabaseEvent>(
+                    stream: _sosStream,
+                    builder: (context, sosSnapshot) {
+                      final Set<String> activePostKeys = {};
+                      if (postsSnapshot.hasData && postsSnapshot.data?.snapshot.value != null) {
+                        final postsVal = postsSnapshot.data!.snapshot.value;
+                        if (postsVal is Map) {
+                          postsVal.forEach((key, value) {
+                            if (key != null) {
+                              activePostKeys.add(key.toString());
+                            }
+                          });
                         }
-                      });
-                    }
-                  }
-              
-              List<Marker> markers = [];
-              List<CircleMarker> circles = [];
-              
-              // Add User Location Marker
-              if (locationProvider.currentPosition != null) {
-                markers.add(
-                  Marker(
-                    point: LatLng(locationProvider.currentPosition!.latitude, locationProvider.currentPosition!.longitude),
-                    width: 110,
-                    height: 70,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.blue, width: 1),
-                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4)],
-                          ),
-                          child: const Text(
-                            'พิกัดของคุณ',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const Icon(Icons.person_pin_circle, color: Colors.blue, size: 36),
-                      ],
-                    ),
-                  ),
-                );
-              }
-
-              // Add Device Markers & Risk Buffer Circles
-              final sensor = context.watch<SensorProvider>();
-              for (final device in sensor.devices.values) {
-                final double lat = device.lat;
-                final double lng = device.lng;
-                final isLeakage = device.isElectricalLeakage;
-                final double waterLevel = device.waterLevel;
-                final double rainfall = device.rainfall;
-                final bool isOffline = !device.isDeviceOnline;
-                Color pinColor = isOffline
-                    ? Colors.grey
-                    : (isLeakage || waterLevel >= 60
-                        ? Colors.red
-                        : (waterLevel >= 20 || rainfall >= 30 ? Colors.orange : Colors.green));
-
-                // 1. Flood Risk & Electrical Hazard Buffer Zones (Circle Layer)
-                if (!isOffline) {
-                  if (isLeakage) {
-                    // Electrical Danger Buffer Zone (300m radius with amber alert border)
-                    circles.add(CircleMarker(
-                      point: LatLng(lat, lng),
-                      color: Colors.red.withValues(alpha: 0.30),
-                      borderColor: Colors.amber,
-                      borderStrokeWidth: 3,
-                      radius: 300,
-                      useRadiusInMeter: true,
-                    ));
-                  }
+                      }
                   
-                  if (waterLevel >= 60) {
-                    // High Flood Danger Buffer Zone (1000m radius)
-                    circles.add(CircleMarker(
-                      point: LatLng(lat, lng),
-                      color: Colors.red.withValues(alpha: 0.20),
-                      borderColor: Colors.red,
-                      borderStrokeWidth: 2,
-                      radius: 1000,
-                      useRadiusInMeter: true,
-                    ));
-                  } else if (waterLevel >= 20 || rainfall >= 30) {
-                    // Flood Warning Buffer Zone (500m radius)
-                    circles.add(CircleMarker(
-                      point: LatLng(lat, lng),
-                      color: Colors.orange.withValues(alpha: 0.20),
-                      borderColor: Colors.orange,
-                      borderStrokeWidth: 2,
-                      radius: 500,
-                      useRadiusInMeter: true,
-                    ));
-                  }
-                }
-
-                // 4. Pulsing Electrical Hazard Marker & standard markers
-                markers.add(
-                  Marker(
-                    point: LatLng(lat, lng),
-                    width: 145,
-                    height: 75,
-                    child: GestureDetector(
-                      onTap: () {
-                        _showDeviceInfo(context, device.id, device.name, waterLevel, isLeakage, isOffline, lat, lng);
-                      },
-                      child: _buildDeviceMarkerWidget(device, pinColor, isLeakage, waterLevel),
-                    ),
-                  ),
-                );
-              }
-
-              // Add Report Markers
-              if (reportSnapshot.hasData && reportSnapshot.data?.snapshot.value != null) {
-                final reportData = reportSnapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-                int reportOffset = 1;
-                final now = DateTime.now().millisecondsSinceEpoch;
-                final oneDayMs = 24 * 60 * 60 * 1000;
-
-                reportData.forEach((key, value) {
-                  if (value is! Map) return;
-
-                  final timestamp = value['timestamp'] ?? 0;
-                  if (now - timestamp > oneDayMs) {
-                    return;
-                  }
-
-                  // ตรวจสอบว่าหากเป็นรายงานที่ผูกกับโพสต์ชุมชน และโพสต์นั้นถูกลบไปแล้ว ให้ตัดสัญลักษณ์เตือนภัยออกจากแผนที่ทันที
-                  final String? postId = value['postId']?.toString();
-                  if (postId != null && postId.isNotEmpty && !activePostKeys.contains(postId)) {
-                    return;
-                  }
-
-                  final lat = value['lat'] ?? (center.latitude - (reportOffset * 0.005));
-                  final lng = value['lng'] ?? (center.longitude - (reportOffset * 0.005));
+                      List<Marker> markers = [];
+                      List<CircleMarker> circles = [];
                   
-                  markers.add(
-                    Marker(
-                      point: LatLng(lat, lng),
-                      width: 50,
-                      height: 50,
-                      child: GestureDetector(
-                        onTap: () {
-                          _showReportInfo(context, value['reason'] ?? 'ไม่มีเหตุผล', value['reportedBy'] ?? 'Unknown');
-                        },
-                        child: const Icon(Icons.report_problem, color: Colors.orange, size: 36),
-                      ),
-                    ),
-                  );
-                  reportOffset++;
-                });
-              }
-
-              // Add SOS Emergency Markers
-              for (final sos in sensor.sosRequests) {
-                if (sos.status == 'resolved') continue;
-                markers.add(
-                  Marker(
-                    point: LatLng(sos.lat, sos.lng),
-                    width: 60,
-                    height: 60,
-                    child: GestureDetector(
-                      onTap: () => _showSosInfo(context, sos),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.redAccent,
-                              borderRadius: BorderRadius.circular(6),
-                              boxShadow: [
-                                BoxShadow(color: Colors.redAccent.withValues(alpha: 0.5), blurRadius: 4),
+                      // Add User Location Marker
+                      if (locationProvider.currentPosition != null) {
+                        markers.add(
+                          Marker(
+                            point: LatLng(locationProvider.currentPosition!.latitude, locationProvider.currentPosition!.longitude),
+                            width: 110,
+                            height: 70,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: Colors.blue, width: 1),
+                                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4)],
+                                  ),
+                                  child: const Text(
+                                    'พิกัดของคุณ',
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const Icon(Icons.person_pin_circle, color: Colors.blue, size: 36),
                               ],
                             ),
-                            child: const Text('SOS', style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold)),
                           ),
-                          const Icon(Icons.location_on_rounded, color: Colors.redAccent, size: 28),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
+                        );
+                      }
 
-              return Stack(
-                children: [
-                  FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: center,
-                      initialZoom: 13.0,
-                    ),
-                    children: [
-                      TileLayer(
-                        urlTemplate: _isSatellite
-                            ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-                            : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.example.flutter_application_water_flood',
-                      ),
-                      if (_showTraffic)
-                        TileLayer(
-                          urlTemplate: 'https://mt1.google.com/vt/lyrs=h,traffic&z={z}&x={x}&y={y}',
-                          userAgentPackageName: 'com.example.flutter_application_water_flood',
-                        ),
-                      if (_showRadar && _radarPath != null)
-                        TileLayer(
-                          urlTemplate: 'https://tilecache.rainviewer.com$_radarPath/256/{z}/{x}/{y}/2/1_1.png',
-                          userAgentPackageName: 'com.example.flutter_application_water_flood',
-                          maxNativeZoom: 6,
-                          maxZoom: 18,
-                        ),
-                      CircleLayer(circles: circles),
-                      MarkerLayer(markers: markers),
-                    ],
-                  ),
-                  
-                  // 5. Floating Distance Range & Risk Banner
-                  if (locationProvider.currentPosition != null && sensor.devices.isNotEmpty)
-                    Positioned(
-                      top: 12,
-                      left: 16,
-                      right: 16,
-                      child: _buildDistanceRiskBanner(context, locationProvider, sensor),
-                    ),
-                ],
-              );
+                      // Add Device Markers & Risk Buffer Circles
+                      for (final device in sensor.devices.values) {
+                        final double lat = device.lat;
+                        final double lng = device.lng;
+                        final double waterLevel = device.waterLevel;
+                        final double rainfall = device.rainfall;
+                        final bool isOffline = !device.isDeviceOnline;
+                        Color pinColor = isOffline
+                            ? Colors.grey
+                            : (device.isFloodDanger
+                                ? Colors.red
+                                : (device.isFloodWarning ? Colors.orange : (device.isUpstream ? const Color(0xFF0284C7) : const Color(0xFF8B5CF6))));
+
+                        // 1. Flood Risk Buffer Zones (Circle Layer)
+                        if (!isOffline) {
+                          if (device.isFloodDanger) {
+                            // High Flood Danger Buffer Zone (1000m radius)
+                            circles.add(CircleMarker(
+                              point: LatLng(lat, lng),
+                              color: Colors.red.withValues(alpha: 0.20),
+                              borderColor: Colors.red,
+                              borderStrokeWidth: 2,
+                              radius: 1000,
+                              useRadiusInMeter: true,
+                            ));
+                          } else if (device.isFloodWarning || waterLevel >= 20 || rainfall >= 30) {
+                            // Flood Warning Buffer Zone (500m radius)
+                            circles.add(CircleMarker(
+                              point: LatLng(lat, lng),
+                              color: Colors.orange.withValues(alpha: 0.20),
+                              borderColor: Colors.orange,
+                              borderStrokeWidth: 2,
+                              radius: 500,
+                              useRadiusInMeter: true,
+                            ));
+                          }
+                        }
+
+                        // Station Markers (Riverbank 🌊 / Urban 🏙️)
+                        markers.add(
+                          Marker(
+                            point: LatLng(lat, lng),
+                            width: 145,
+                            height: 75,
+                            child: GestureDetector(
+                              onTap: () {
+                                _showDeviceInfo(context, device.id, device.name, waterLevel, isOffline, lat, lng);
+                              },
+                              child: _buildDeviceMarkerWidget(device, pinColor, waterLevel),
+                            ),
+                          ),
+                        );
+                      }
+
+                      // Add Report Markers
+                      if (reportSnapshot.hasData && reportSnapshot.data?.snapshot.value != null) {
+                        final reportData = reportSnapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                        int reportOffset = 1;
+                        final now = DateTime.now().millisecondsSinceEpoch;
+                        final oneDayMs = 24 * 60 * 60 * 1000;
+
+                        reportData.forEach((key, value) {
+                          if (value is! Map) return;
+
+                          final timestamp = value['timestamp'] ?? 0;
+                          if (now - timestamp > oneDayMs) {
+                            return;
+                          }
+
+                          final String? postId = value['postId']?.toString();
+                          if (postId != null && postId.isNotEmpty && !activePostKeys.contains(postId)) {
+                            return;
+                          }
+
+                          final lat = value['lat'] ?? (center.latitude - (reportOffset * 0.005));
+                          final lng = value['lng'] ?? (center.longitude - (reportOffset * 0.005));
+                          
+                          markers.add(
+                            Marker(
+                              point: LatLng(lat, lng),
+                              width: 50,
+                              height: 50,
+                              child: GestureDetector(
+                                onTap: () {
+                                  _showReportInfo(context, value['reason'] ?? 'ไม่มีเหตุผล', value['reportedBy'] ?? 'Unknown');
+                                },
+                                child: const Icon(Icons.report_problem, color: Colors.orange, size: 36),
+                              ),
+                            ),
+                          );
+                          reportOffset++;
+                        });
+                      }
+
+                      // Build Persistent SOS Emergency Requests Map
+                      // หมุดพิกัด SOS จะคงอยู่บนแผนที่เสมอจนกว่าจะได้รับความช่วยเหลือ (status == 'resolved')
+                      final Map<String, SosRequest> activeSosMap = {};
+
+                      // 1. Initial / Cached data from SensorProvider
+                      for (final sos in sensor.sosRequests) {
+                        if (sos.status != 'resolved') {
+                          activeSosMap[sos.id] = sos;
+                        }
+                      }
+
+                      // 2. Real-time Firebase stream updates
+                      if (sosSnapshot.hasData && sosSnapshot.data?.snapshot.value != null) {
+                        final raw = sosSnapshot.data!.snapshot.value;
+                        if (raw is Map) {
+                          raw.forEach((key, val) {
+                            if (val is Map) {
+                              try {
+                                final req = SosRequest.fromJson(key.toString(), val);
+                                if (req.status != 'resolved') {
+                                  activeSosMap[req.id] = req;
+                                } else {
+                                  activeSosMap.remove(req.id);
+                                }
+                              } catch (_) {}
+                            }
+                          });
+                        } else if (raw is List) {
+                          for (int i = 0; i < raw.length; i++) {
+                            final val = raw[i];
+                            if (val is Map) {
+                              try {
+                                final req = SosRequest.fromJson(i.toString(), val);
+                                if (req.status != 'resolved') {
+                                  activeSosMap[req.id] = req;
+                                } else {
+                                  activeSosMap.remove(req.id);
+                                }
+                              } catch (_) {}
+                            }
+                          }
+                        }
+                      }
+
+                      // Add SOS Markers & Emergency Buffer Circles
+                      for (final sos in activeSosMap.values) {
+                        final bool isInProgress = sos.status == 'in_progress';
+                        final Color sosColor = isInProgress ? Colors.orange : Colors.redAccent;
+                        final String badgeText = isInProgress ? 'กำลังช่วย' : 'SOS ด่วน';
+
+                        // วงรัศมีฉุกเฉินรอบพิกัด SOS เพื่อให้สังเกตเห็นได้ชัดเจนบนแผนที่
+                        circles.add(
+                          CircleMarker(
+                            point: LatLng(sos.lat, sos.lng),
+                            color: sosColor.withValues(alpha: 0.16),
+                            borderColor: sosColor,
+                            borderStrokeWidth: 1.8,
+                            radius: 80,
+                            useRadiusInMeter: true,
+                          ),
+                        );
+
+                        markers.add(
+                          Marker(
+                            point: LatLng(sos.lat, sos.lng),
+                            width: 72,
+                            height: 64,
+                            child: GestureDetector(
+                              onTap: () => _showSosInfo(context, sos),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: sosColor,
+                                      borderRadius: BorderRadius.circular(6),
+                                      boxShadow: [
+                                        BoxShadow(color: sosColor.withValues(alpha: 0.5), blurRadius: 4),
+                                      ],
+                                    ),
+                                    child: Text(
+                                      badgeText,
+                                      style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  Icon(Icons.location_on_rounded, color: sosColor, size: 30),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      return Stack(
+                        children: [
+                          FlutterMap(
+                            mapController: _mapController,
+                            options: MapOptions(
+                              initialCenter: center,
+                              initialZoom: 13.0,
+                            ),
+                            children: [
+                              TileLayer(
+                                urlTemplate: _isSatellite
+                                    ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                                    : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                userAgentPackageName: 'com.example.flutter_application_water_flood',
+                              ),
+                              if (_showTraffic)
+                                TileLayer(
+                                  urlTemplate: 'https://mt1.google.com/vt/lyrs=h,traffic&z={z}&x={x}&y={y}',
+                                  userAgentPackageName: 'com.example.flutter_application_water_flood',
+                                ),
+                              CircleLayer(circles: circles),
+                              MarkerLayer(markers: markers),
+                            ],
+                          ),
+                          
+                          // Floating Distance Range & Risk Banner
+                          if (locationProvider.currentPosition != null && sensor.devices.isNotEmpty)
+                            Positioned(
+                              top: 12,
+                              left: 16,
+                              right: 16,
+                              child: _buildDistanceRiskBanner(context, locationProvider, sensor),
+                            ),
+
+                          // SOS Emergency Button in Bottom-Left corner
+                          Positioned(
+                            bottom: 16,
+                            left: 16,
+                            child: SizedBox(
+                              height: 42,
+                              child: ElevatedButton(
+                                key: const ValueKey('map_sos_btn'),
+                                onPressed: () => SosEmergencyModal.show(context),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFEF4444),
+                                  foregroundColor: Colors.white,
+                                  elevation: 5,
+                                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(22),
+                                    side: const BorderSide(color: Colors.white, width: 1.5),
+                                  ),
+                                  shadowColor: Colors.redAccent.withValues(alpha: 0.5),
+                                ),
+                                child: const Text(
+                                  'SOS',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 14,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  );
                 },
               );
             },
@@ -463,18 +569,6 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
           ),
           const SizedBox(height: 8),
           FloatingActionButton(
-            heroTag: 'radar_fab',
-            onPressed: () {
-              setState(() {
-                _showRadar = !_showRadar;
-              });
-            },
-            backgroundColor: _showRadar ? Colors.orange : Colors.white,
-            mini: true,
-            child: Icon(Icons.cloudy_snowing, color: _showRadar ? Colors.white : Colors.blue),
-          ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
             heroTag: 'satellite_fab',
             onPressed: () {
               setState(() {
@@ -484,6 +578,43 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
             backgroundColor: _isSatellite ? Colors.green : Colors.white,
             mini: true,
             child: Icon(Icons.satellite_alt, color: _isSatellite ? Colors.white : Colors.blue),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton(
+            heroTag: 'device_location_fab',
+            tooltip: 'เลื่อนไปยังอุปกรณ์ IoT จริง (ESP32)',
+            onPressed: () {
+              final activeDev = sensor.currentDevice ??
+                  sensor.devices['device_1'] ??
+                  (sensor.devices.isNotEmpty ? sensor.devices.values.first : null);
+              if (activeDev != null) {
+                _mapController.move(LatLng(activeDev.lat, activeDev.lng), 16.0);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(
+                      children: [
+                        Icon(
+                          activeDev.isGpsLocked ? Icons.satellite_alt_rounded : Icons.sensors_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '📍 ตำแหน่ง ${activeDev.name} (${activeDev.lat.toStringAsFixed(4)}, ${activeDev.lng.toStringAsFixed(4)}) ${activeDev.isGpsLocked ? "[🛰️ GPS จริง]" : ""}',
+                          ),
+                        ),
+                      ],
+                    ),
+                    duration: const Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            backgroundColor: const Color(0xFF0284C7),
+            mini: true,
+            child: const Icon(Icons.sensors_rounded, color: Colors.white),
           ),
           const SizedBox(height: 8),
           FloatingActionButton(
@@ -502,8 +633,8 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     );
   }
 
-  Widget _buildDeviceMarkerWidget(DeviceData device, Color pinColor, bool isLeakage, double waterLevel) {
-    final bool isDanger = device.isFloodDanger || isLeakage;
+  Widget _buildDeviceMarkerWidget(DeviceData device, Color pinColor, double waterLevel) {
+    final bool isDanger = device.isFloodDanger;
     final bool isWarning = device.isFloodWarning && !isDanger;
 
     final content = Column(
@@ -516,17 +647,17 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
             color: const Color(0xEE1E293B), // Dark slate glass container
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isLeakage 
-                  ? Colors.amber 
-                  : (isDanger ? const Color(0xFFEF4444) : (isWarning ? const Color(0xFFF59E0B) : const Color(0xFF3B82F6))),
-              width: isLeakage || isDanger ? 1.5 : 1.0,
+              color: isDanger
+                  ? const Color(0xFFEF4444)
+                  : (isWarning ? const Color(0xFFF59E0B) : device.stationTypeColor),
+              width: isDanger ? 1.5 : 1.0,
             ),
             boxShadow: [
               BoxShadow(
-                color: (isLeakage || isDanger) 
-                    ? pinColor.withValues(alpha: 0.5) 
+                color: isDanger
+                    ? pinColor.withValues(alpha: 0.5)
                     : Colors.black.withValues(alpha: 0.25),
-                blurRadius: isLeakage || isDanger ? 10 : 6,
+                blurRadius: isDanger ? 10 : 6,
                 offset: const Offset(0, 3),
               )
             ],
@@ -554,10 +685,12 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (isLeakage) ...[
-                          const Icon(Icons.bolt_rounded, color: Colors.amber, size: 12),
-                          const SizedBox(width: 2),
-                        ],
+                        Icon(
+                          device.stationTypeIcon,
+                          color: device.stationTypeColor,
+                          size: 12,
+                        ),
+                        const SizedBox(width: 2),
                         Flexible(
                           child: Text(
                             device.name,
@@ -566,10 +699,18 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        if (device.isGpsLocked) ...[
+                          const SizedBox(width: 3),
+                          const Icon(
+                            Icons.satellite_alt_rounded,
+                            color: Color(0xFF10B981),
+                            size: 10,
+                          ),
+                        ],
                       ],
                     ),
                     Text(
-                      device.isDeviceOnline ? '${waterLevel.toStringAsFixed(1)} ซม.' : 'ออฟไลน์',
+                      device.isDeviceOnline ? '${waterLevel.toStringAsFixed(1)} ซม.' : 'ออฟไลน์ (อ่านค่าไม่ได้)',
                       style: TextStyle(
                         fontSize: 9.5, 
                         color: Colors.white.withValues(alpha: 0.85), 
@@ -611,7 +752,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
         nearestDevice = device;
       }
 
-      if (device.isElectricalLeakage || device.isFloodDanger || device.isFloodWarning) {
+      if (device.isDeviceOnline && (device.isFloodDanger || device.isFloodWarning)) {
         if (dist < minRiskDist) {
           minRiskDist = dist;
           nearestRiskDevice = device;
@@ -633,20 +774,26 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
 
     final distText = _calculateDistanceText(userLatLng, LatLng(targetDevice.lat, targetDevice.lng));
 
-    final isElectrical = targetDevice.isElectricalLeakage;
-    final isDanger = targetDevice.isFloodDanger || isElectrical;
+    final bool isOffline = !targetDevice.isDeviceOnline;
+    final isDanger = targetDevice.isFloodDanger && !isOffline;
 
-    final Color accentColor = isElectrical
-        ? Colors.amber
-        : (isDanger ? const Color(0xFFEF4444) : (isRisk ? const Color(0xFFF59E0B) : const Color(0xFF10B981)));
+    final Color accentColor = isOffline
+        ? Colors.grey
+        : (isDanger
+            ? const Color(0xFFEF4444)
+            : (isRisk ? const Color(0xFFF59E0B) : const Color(0xFF10B981)));
 
-    final IconData statusIcon = isElectrical
-        ? Icons.bolt_rounded
-        : (isDanger ? Icons.warning_amber_rounded : (isRisk ? Icons.error_outline_rounded : Icons.verified_user_rounded));
+    final IconData statusIcon = isOffline
+        ? Icons.sensors_off_rounded
+        : (isDanger
+            ? Icons.warning_amber_rounded
+            : (isRisk ? Icons.error_outline_rounded : Icons.verified_user_rounded));
 
-    final String statusTitle = isElectrical
-        ? 'เสี่ยงไฟฟ้ารั่ว'
-        : (isDanger ? 'เตือนภัยระดับน้ำวิกฤต' : (isRisk ? 'เฝ้าระวังระดับน้ำ' : 'ปลอดภัย • สภาวะปกติ'));
+    final String statusTitle = isOffline
+        ? 'อุปกรณ์ออฟไลน์ (ขาดการติดต่อ)'
+        : (isDanger
+            ? 'เตือนภัยระดับน้ำวิกฤต'
+            : (isRisk ? 'เฝ้าระวังระดับน้ำ' : 'ปลอดภัย • สภาวะปกติ'));
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xEE0F172A) : Colors.white.withValues(alpha: 0.92);
@@ -676,7 +823,6 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
               targetDevice.id,
               targetDevice.name,
               targetDevice.waterLevel,
-              targetDevice.isElectricalLeakage,
               !targetDevice.isDeviceOnline,
               targetDevice.lat,
               targetDevice.lng,
@@ -714,7 +860,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                                 decoration: BoxDecoration(
                                   color: accentColor,
                                   shape: BoxShape.circle,
-                                  boxShadow: isRisk ? [
+                                  boxShadow: (isRisk && !isOffline) ? [
                                     BoxShadow(
                                       color: accentColor.withValues(alpha: 0.6 * _pulseController.value),
                                       blurRadius: 6,
@@ -743,7 +889,9 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${targetDevice.name} • ห่าง $distText',
+                        isOffline
+                            ? '${targetDevice.name} • ออฟไลน์ (ไม่ได้รับข้อมูลสด) • ห่าง $distText'
+                            : '${targetDevice.name} • ห่าง $distText',
                         style: TextStyle(
                           color: textColor,
                           fontSize: 13,
@@ -782,7 +930,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     );
   }
 
-  void _showDeviceInfo(BuildContext context, String deviceId, String name, double waterLevel, bool isLeakage, bool isOffline, double devLat, double devLng) {
+  void _showDeviceInfo(BuildContext context, String deviceId, String name, double waterLevel, bool isOffline, double devLat, double devLng) {
     final locationProvider = context.read<LocationProvider>();
     final userPos = locationProvider.currentPosition;
     final LatLng? userLatLng = userPos != null ? LatLng(userPos.latitude, userPos.longitude) : null;
@@ -854,9 +1002,13 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
                           color: isOffline 
-                              ? Colors.grey.withValues(alpha: 0.15) 
-                              : (isLeakage ? Colors.red.withValues(alpha: 0.15) : Colors.green.withValues(alpha: 0.15)),
+                              ? Colors.redAccent.withValues(alpha: 0.15) 
+                              : Colors.green.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isOffline ? Colors.redAccent.withValues(alpha: 0.4) : Colors.green.withValues(alpha: 0.4),
+                            width: 1,
+                          ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -865,15 +1017,15 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                               width: 6,
                               height: 6,
                               decoration: BoxDecoration(
-                                color: isOffline ? Colors.grey : (isLeakage ? Colors.red : Colors.green),
+                                color: isOffline ? Colors.redAccent : Colors.green,
                                 shape: BoxShape.circle,
                               ),
                             ),
                             const SizedBox(width: 5),
                             Text(
-                              isOffline ? 'ออฟไลน์' : (isLeakage ? 'รั่วไหล!' : 'ออนไลน์'),
+                              isOffline ? 'ออฟไลน์ (ขาดการติดต่อ)' : 'ออนไลน์',
                               style: TextStyle(
-                                color: isOffline ? Colors.grey : (isLeakage ? Colors.red : Colors.green),
+                                color: isOffline ? Colors.redAccent : Colors.green,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 11.5,
                               ),
@@ -883,6 +1035,114 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                       ),
                     ],
                   ),
+                  // GIS Coordinates & Real Hardware GPS Telemetry
+                  Builder(
+                    builder: (context) {
+                      final dev = context.read<SensorProvider>().devices[deviceId];
+                      final bool isGpsLocked = dev?.isGpsLocked ?? false;
+                      return Container(
+                        margin: const EdgeInsets.only(top: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isGpsLocked
+                                ? const Color(0xFF10B981).withValues(alpha: 0.5)
+                                : Colors.blueGrey.withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(7),
+                              decoration: BoxDecoration(
+                                color: isGpsLocked
+                                    ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                                    : Colors.blueGrey.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                isGpsLocked ? Icons.satellite_alt_rounded : Icons.location_on_rounded,
+                                color: isGpsLocked ? const Color(0xFF10B981) : Colors.blueGrey,
+                                size: 18,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'พิกัด GIS ตำแหน่งอุปกรณ์:',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: isDark ? Colors.white70 : Colors.black54,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: isGpsLocked
+                                              ? const Color(0xFF10B981).withValues(alpha: 0.2)
+                                              : Colors.grey.withValues(alpha: 0.2),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          isGpsLocked ? '🛰️ ล็อกดาวเทียมจริง' : '📍 พิกัดสถานี',
+                                          style: TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: isGpsLocked ? const Color(0xFF10B981) : Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${devLat.toStringAsFixed(6)}, ${devLng.toStringAsFixed(6)}',
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  if (isOffline) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.sensors_off_rounded, color: Colors.redAccent, size: 20),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'อุปกรณ์นี้ออฟไลน์อยู่ ไม่สามารถอ่านค่าระดับน้ำได้จนกว่าอุปกรณ์จะกลับมาออนไลน์',
+                              style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   Row(
                     children: [
@@ -890,22 +1150,23 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                         child: _buildInfoCard(
                           context,
                           title: 'ระดับน้ำ',
-                          value: '${waterLevel.toStringAsFixed(1)} ซม.',
-                          icon: Icons.water_drop_rounded,
-                          color: waterLevel >= 60 ? Colors.red : (waterLevel >= 20 ? Colors.orange : Colors.blue),
+                          value: isOffline ? 'ออฟไลน์ (อ่านค่าไม่ได้)' : '${waterLevel.toStringAsFixed(1)} ซม.',
+                          icon: isOffline ? Icons.sensors_off_rounded : Icons.water_drop_rounded,
+                          color: isOffline ? Colors.grey : (waterLevel >= 60 ? Colors.red : (waterLevel >= 20 ? Colors.orange : Colors.blue)),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Builder(
                           builder: (context) {
-                            final hasCurrent = context.read<SensorProvider>().devices[deviceId]?.hasCurrentSensor ?? false;
+                            final dev = context.read<SensorProvider>().devices[deviceId];
+                            final stationName = dev?.stationTypeName ?? 'สถานีตรวจวัด';
                             return _buildInfoCard(
                               context,
-                              title: 'ระบบไฟฟ้า',
-                              value: !hasCurrent ? 'ไม่ได้ติดตั้ง' : (isLeakage ? 'ไฟฟ้ารั่ว!' : 'ปกติ'),
-                              icon: Icons.bolt_rounded,
-                              color: !hasCurrent ? Colors.grey : (isLeakage ? Colors.amber : Colors.green),
+                              title: 'จุดตรวจวัด',
+                              value: isOffline ? '$stationName (ออฟไลน์)' : stationName,
+                              icon: isOffline ? Icons.sensors_off_rounded : (dev?.stationTypeIcon ?? Icons.location_city_rounded),
+                              color: isOffline ? Colors.grey : (dev?.stationTypeColor ?? const Color(0xFF0284C7)),
                             );
                           }
                         ),
@@ -922,6 +1183,90 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                       ),
                     ],
                   ),
+                  if (!isOffline)
+                    Builder(
+                      builder: (context) {
+                        final dev = context.read<SensorProvider>().devices[deviceId];
+                        if (dev == null) return const SizedBox.shrink();
+                        return Container(
+                          margin: const EdgeInsets.only(top: 14),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: dev.earlyWarningColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: dev.earlyWarningColor.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(dev.earlyWarningIcon, color: dev.earlyWarningColor, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'พยากรณ์ระดับน้ำล่วงหน้า (คำนวณผ่าน App):',
+                                      style: TextStyle(
+                                        color: dev.earlyWarningColor,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'อีก 30 นาที: ${dev.predictedWaterLevel30.toStringAsFixed(1)} ซม. | อีก 60 นาที: ${dev.predictedWaterLevel60.toStringAsFixed(1)} ซม. (โอกาสฝน ${dev.forecastRainProb30}%)',
+                                      style: TextStyle(
+                                        color: isDark ? Colors.white : Colors.black87,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  // One-Touch Geolocation Sync Button (ซิงค์พิกัดอุปกรณ์ตาม GPS มือถือปัจจุบัน)
+                  if (userPos != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          side: BorderSide(color: const Color(0xFF0284C7).withValues(alpha: 0.5)),
+                          backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.08),
+                        ),
+                        icon: const Icon(Icons.my_location_rounded, size: 18, color: Color(0xFF0284C7)),
+                        label: const Text(
+                          'ซิงค์พิกัดอุปกรณ์ตาม GPS มือถือฉัน',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0284C7)),
+                        ),
+                        onPressed: () async {
+                          await context.read<SensorProvider>().updateDeviceLocation(
+                            deviceId,
+                            userPos.latitude,
+                            userPos.longitude,
+                          );
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            _mapController.move(LatLng(userPos.latitude, userPos.longitude), 16.0);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '✅ ซิงค์พิกัดอุปกรณ์ "$name" ไปยังตำแหน่งจริงเรียบร้อยแล้ว (${userPos.latitude.toStringAsFixed(4)}, ${userPos.longitude.toStringAsFixed(4)})',
+                                ),
+                                backgroundColor: const Color(0xFF059669),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ),
                   const SizedBox(height: 22),
                   Row(
                     children: [
@@ -988,8 +1333,8 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
           const SizedBox(height: 2),
           Text(
             value,
-            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold),
-            maxLines: 1,
+            style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.bold),
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
         ],
@@ -1049,94 +1394,339 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     }
   }
 
+  Future<void> _confirmResolveSos(BuildContext context, SosRequest sos) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, color: Colors.green, size: 26),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'ยืนยันได้รับความช่วยเหลือ',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'ยืนยันว่าผู้ประสบภัย "${sos.userName}" ได้รับความช่วยเหลือเรียบร้อยแล้วใช่หรือไม่?\n\nเมื่อยืนยันแล้ว หมุดพิกัด SOS จะถูกนำออกจากแผนที่ทันที',
+          style: const TextStyle(fontSize: 13.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ยืนยัน (ช่วยเหลือแล้ว)', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      final sensor = context.read<SensorProvider>();
+      await sensor.updateSosStatus(sos.id, 'resolved');
+      if (context.mounted) {
+        Navigator.pop(context); // Close bottom sheet
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_outline_rounded, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'บันทึกว่า "${sos.userName}" ได้รับการช่วยเหลือแล้ว และนำหมุดออกจากแผนที่เรียบร้อย',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   void _showSosInfo(BuildContext context, SosRequest sos) {
+    final locationProvider = context.read<LocationProvider>();
+    final LatLng? userPos = locationProvider.currentPosition != null
+        ? LatLng(locationProvider.currentPosition!.latitude, locationProvider.currentPosition!.longitude)
+        : null;
+    final distanceText = _calculateDistanceText(userPos, LatLng(sos.lat, sos.lng));
+
+    final bool isPending = sos.status == 'pending';
+    final bool isInProgress = sos.status == 'in_progress';
+    final Color statusColor = isPending ? Colors.redAccent : (isInProgress ? Colors.orange : Colors.green);
+    final String statusLabel = isPending ? 'รอดำเนินการช่วยเหลือ' : (isInProgress ? 'กำลังเข้าช่วยเหลือ' : 'ช่วยเหลือแล้ว');
+    final String timeStr = '${sos.timestamp.hour.toString().padLeft(2, '0')}:${sos.timestamp.minute.toString().padLeft(2, '0')} น.';
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
-        return SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.88,
+          ),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Drag handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
                       decoration: BoxDecoration(
-                        color: Colors.redAccent.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
+                        color: Colors.grey.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                      child: const Icon(Icons.sos_rounded, color: Colors.redAccent, size: 24),
                     ),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text('ขอความช่วยเหลือฉุกเฉิน (SOS)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.redAccent)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text('ผู้ประสบภัย: ${sos.userName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                const SizedBox(height: 4),
-                Text('เหตุฉุกเฉิน: ${sos.situation}', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600, fontSize: 13)),
-                if (sos.note.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text('รายละเอียด: ${sos.note}', style: const TextStyle(fontSize: 12)),
-                ],
-                const SizedBox(height: 4),
-                Text('พิกัด: ${sos.lat.toStringAsFixed(6)}, ${sos.lng.toStringAsFixed(6)}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Header
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
                         ),
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('ปิด'),
+                        child: Icon(Icons.sos_rounded, color: statusColor, size: 24),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        icon: const Icon(Icons.navigation_rounded, size: 18),
-                        label: const Text('นำทาง', style: TextStyle(fontWeight: FontWeight.bold)),
-                        onPressed: () => _openGoogleMapsNavigation(sos.lat, sos.lng),
-                      ),
-                    ),
-                    if (sos.phoneNumber.isNotEmpty) ...[
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 10),
                       Expanded(
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          ),
-                          icon: const Icon(Icons.phone, size: 18),
-                          label: const Text('โทร', style: TextStyle(fontWeight: FontWeight.bold)),
-                          onPressed: () async {
-                            final uri = Uri.parse('tel:${sos.phoneNumber}');
-                            if (await canLaunchUrl(uri)) await launchUrl(uri);
-                          },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'ขอความช่วยเหลือฉุกเฉิน (SOS)',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.redAccent),
+                            ),
+                            Text(
+                              'เวลา: $timeStr • ห่างจากคุณ: $distanceText',
+                              style: TextStyle(fontSize: 11, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                            ),
+                          ],
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Persistent Pin Notice & Status Banner
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: statusColor.withValues(alpha: 0.35)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(isPending ? Icons.warning_amber_rounded : Icons.directions_run_rounded, color: statusColor, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'สถานะ: $statusLabel • หมุดพิกัดจะแสดงอยู่จนกว่าจะได้รับความช่วยเหลือ',
+                            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: statusColor),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Victim details card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ผู้ประสบภัย: ${sos.userName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        if (sos.nickname.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text('ชื่อเล่น: ${sos.nickname}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        ],
+                        if (sos.englishName.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text('ชื่อสากล (EN): ${sos.englishName}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        ],
+                        if (sos.dob.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text('วันเกิด (ค.ศ.): ${sos.dob}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        ],
+                        const SizedBox(height: 6),
+                        Text('เหตุฉุกเฉิน: ${sos.situation}', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600, fontSize: 13)),
+                        if (sos.note.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text('รายละเอียด: ${sos.note}', style: const TextStyle(fontSize: 12)),
+                        ],
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.location_on_rounded, size: 14, color: Colors.blueAccent),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                'พิกัด GPS: ${sos.lat.toStringAsFixed(6)}, ${sos.lng.toStringAsFixed(6)} ($distanceText)',
+                                style: const TextStyle(color: Colors.blueAccent, fontSize: 11.5, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Action Buttons: Row 1 (Navigation + Call)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          icon: const Icon(Icons.navigation_rounded, size: 18),
+                          label: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text('นำทาง GPS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          ),
+                          onPressed: () => _openGoogleMapsNavigation(sos.lat, sos.lng),
+                        ),
+                      ),
+                      if (sos.phoneNumber.isNotEmpty && sos.phoneNumber != '-') ...[
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            icon: const Icon(Icons.phone, size: 18),
+                            label: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text('โทร: ${sos.phoneNumber}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            ),
+                            onPressed: () async {
+                              final uri = Uri.parse('tel:${sos.phoneNumber}');
+                              if (await canLaunchUrl(uri)) await launchUrl(uri);
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Action Button: In-progress update (if pending)
+                  if (isPending) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.orange.shade800,
+                          side: BorderSide(color: Colors.orange.shade400),
+                          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.directions_run_rounded, size: 18),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('🟠 กำลังเดินทางเข้าช่วยเหลือ (เปลี่ยนสถานะ)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        ),
+                        onPressed: () async {
+                          final sensor = context.read<SensorProvider>();
+                          await sensor.updateSosStatus(sos.id, 'in_progress');
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('อัปเดตสถานะเป็น "กำลังเข้าช่วยเหลือ" เรียบร้อยแล้ว (หมุดยังคงอยู่บนแผนที่)'),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                   ],
-                ),
-              ],
+
+                  // Action Button: Resolve assistance (Remove pin from map)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF059669),
+                        foregroundColor: Colors.white,
+                        elevation: 2,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                      icon: const Icon(Icons.check_circle_rounded, size: 20),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          '✅ ยืนยันได้รับความช่วยเหลือแล้ว (นำหมุดออกจากแผนที่)',
+                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      onPressed: () => _confirmResolveSos(context, sos),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Close button
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('ปิดหน้าต่าง', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );

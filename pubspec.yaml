@@ -56,6 +56,8 @@ dependencies:
   reorderables: ^0.6.0
   audioplayers: ^6.8.1
   share_plus: ^13.3.0
+  crypto: ^3.0.7
+  mailer: ^7.2.0
 
 dev_dependencies:
   flutter_test:

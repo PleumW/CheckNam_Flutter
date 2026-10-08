@@ -27,22 +27,21 @@ void main() {
     test('Effective warning radius adapts dynamically to hazard severity', () {
       const double baseRadius = 500.0;
 
-      // Critical severity: electrical leakage
-      final deviceLeakage = DeviceData(
+      // Critical severity: high water level
+      final deviceCritical = DeviceData(
         id: 'test_1',
-        name: 'สถานีเสี่ยงไฟรั่ว',
-        waterLevel: 25.0,
+        name: 'สถานีน้ำท่วมวิกฤต',
+        waterLevel: 70.0,
         batteryPercent: 90,
         batteryVoltage: 4.1,
-        isElectricalLeakage: true,
         lat: 13.75,
         lng: 100.50,
       );
-      double radiusLeakage = baseRadius;
-      if (deviceLeakage.isElectricalLeakage || deviceLeakage.waterLevel >= 60.0) {
-        radiusLeakage = baseRadius.clamp(300.0, 2000.0);
+      double radiusCritical = baseRadius;
+      if (deviceCritical.waterLevel >= 60.0) {
+        radiusCritical = baseRadius.clamp(300.0, 2000.0);
       }
-      expect(radiusLeakage, 500.0);
+      expect(radiusCritical, 500.0);
 
       final deviceWarning = DeviceData(
         id: 'test_2',
@@ -82,9 +81,7 @@ void main() {
 
     test('Retreat distance instruction matches hazard severity levels', () {
       String getRetreatInstruction(DeviceData d) {
-        if (d.isElectricalLeakage) {
-          return 'ถอยห่างออกไปอย่างน้อย 300 - 500 เมตร';
-        } else if (d.waterLevel >= 60.0) {
+        if (d.waterLevel >= 60.0) {
           return 'ถอยห่างออกไปอย่างน้อย 300 - 500 เมตร';
         } else if (d.waterLevel >= 40.0) {
           return 'ถอยห่างอย่างน้อย 500 เมตร หรือใช้ทางเลี่ยง';
@@ -93,16 +90,6 @@ void main() {
         }
       }
 
-      final criticalLeakage = DeviceData(
-        id: 'c1',
-        name: 'Critical Leakage',
-        waterLevel: 25.0,
-        batteryPercent: 80,
-        batteryVoltage: 3.9,
-        isElectricalLeakage: true,
-        lat: 0,
-        lng: 0,
-      );
       final criticalFlood = DeviceData(
         id: 'c2',
         name: 'Critical Deep Flood',
@@ -131,7 +118,6 @@ void main() {
         lng: 0,
       );
 
-      expect(getRetreatInstruction(criticalLeakage), 'ถอยห่างออกไปอย่างน้อย 300 - 500 เมตร');
       expect(getRetreatInstruction(criticalFlood), 'ถอยห่างออกไปอย่างน้อย 300 - 500 เมตร');
       expect(getRetreatInstruction(warningFlood), 'ถอยห่างอย่างน้อย 500 เมตร หรือใช้ทางเลี่ยง');
       expect(getRetreatInstruction(advisoryFlood), 'เฝ้าระวังในระยะ 800 - 1,000 เมตร');
@@ -176,7 +162,7 @@ void main() {
       final warningDevice = DeviceData(
         id: 'warn_1',
         name: 'Warning Flood Station',
-        waterLevel: 42.0,
+        waterLevel: 20.0,
         batteryPercent: 85,
         batteryVoltage: 4.0,
         lat: 13.75,
@@ -198,15 +184,12 @@ void main() {
 
     test('Early Warning triggers route avoidance and retreat command', () {
       String getRetreatInstructionWithEarlyWarning(DeviceData d) {
-        final bool isLeakage = d.isElectricalLeakage;
         final bool isCriticalWater = d.waterLevel >= 60.0;
         final bool isFloodDanger = d.isFloodDanger;
         final bool isEWCritical = d.earlyWarningSeverity == EarlyWarningSeverity.critical;
         final bool isEWAlert = d.earlyWarningSeverity == EarlyWarningSeverity.alert;
 
-        if (isLeakage) {
-          return 'ถอยห่างออกไปอย่างน้อย 300 - 500 เมตร';
-        } else if (isCriticalWater || isFloodDanger) {
+        if (isCriticalWater || isFloodDanger) {
           return 'ถอยห่างออกไปอย่างน้อย 300 - 500 เมตร';
         } else if (isEWCritical) {
           return 'เปลี่ยนเส้นทางทันที / ถอยห่างจากพื้นที่ลุ่มต่ำ 500 - 1,000 เมตร';

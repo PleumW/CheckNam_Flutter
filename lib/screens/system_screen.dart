@@ -32,8 +32,14 @@ class SystemScreen extends StatelessWidget {
             children: [
               const Icon(Icons.location_on, color: Colors.blue),
               const SizedBox(width: 8),
-              const Text('ระบบเฝ้าระวังความปลอดภัย', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-              const Spacer(),
+              const Expanded(
+                child: Text(
+                  'ระบบเฝ้าระวังความปลอดภัย',
+                  style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
               Text(
                 isOnline ? '(Online)' : '(Offline)',
                 style: TextStyle(color: isOnline ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold),
@@ -62,22 +68,6 @@ class SystemScreen extends StatelessWidget {
             icon: Icons.water_drop_rounded,
             iconColor: isOnline ? Colors.blue : Colors.grey,
             isOnline: isOnline,
-          ),
-          _buildDeviceCard(
-            context,
-            name: 'SCT-013 Current Sensor',
-            subtitle: (dev?.hasCurrentSensor ?? false)
-                ? (dev?.isElectricalLeakage == true ? '⚠️ ตรวจพบไฟฟ้ารั่ว!' : 'ปกติ (กระแสไฟ 0.00A)')
-                : 'ยังไม่ได้ติดตั้งเซนเซอร์',
-            status: (dev?.hasCurrentSensor ?? false)
-                ? (isOnline ? 'Connected' : 'Offline')
-                : 'Not Installed',
-            percentText: (dev?.hasCurrentSensor ?? false) ? 'OK' : 'N/A',
-            icon: Icons.bolt_rounded,
-            iconColor: (dev?.hasCurrentSensor ?? false)
-                ? (dev?.isElectricalLeakage == true ? Colors.red : Colors.green)
-                : Colors.orange,
-            isOnline: isOnline && (dev?.hasCurrentSensor ?? false),
           ),
         ],
       ),
@@ -108,20 +98,26 @@ class SystemScreen extends StatelessWidget {
         ),
         title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(subtitle, style: const TextStyle(color: Colors.grey)),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(percentText, style: TextStyle(color: iconColor, fontSize: 12, fontWeight: FontWeight.bold)),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: iconColor, size: 12),
-                const SizedBox(width: 4),
-                Text(status, style: TextStyle(color: isOnline ? Colors.green : Colors.grey, fontSize: 12)),
-              ],
-            ),
-          ],
+        trailing: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 110),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(percentText, style: TextStyle(color: iconColor, fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: iconColor, size: 12),
+                  const SizedBox(width: 4),
+                  Text(status, style: TextStyle(color: isOnline ? Colors.green : Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

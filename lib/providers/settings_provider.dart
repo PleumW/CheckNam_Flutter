@@ -76,7 +76,6 @@ class SettingsProvider with ChangeNotifier {
       DashboardWidgetConfig(id: 'risk_distance', title: 'รัศมีเสี่ยงภัยพิบัติ', icon: Icons.shield_rounded),
       DashboardWidgetConfig(id: 'status', title: 'สถานะความปลอดภัยรวม', icon: Icons.security_rounded),
       DashboardWidgetConfig(id: 'water_level', title: 'ระดับน้ำปัจจุบัน', icon: Icons.water_drop_rounded),
-      DashboardWidgetConfig(id: 'electricity', title: 'กระแสไฟฟ้า', icon: Icons.bolt_rounded),
       DashboardWidgetConfig(id: 'weather_status', title: 'สภาพอากาศรายวัน', icon: Icons.cloud_queue_rounded),
       DashboardWidgetConfig(id: 'water_speed', title: 'ความเร็วการเพิ่มระดับน้ำ', icon: Icons.speed_rounded),
       DashboardWidgetConfig(id: 'rain_forecast', title: 'พยากรณ์ฝนล่วงหน้า', icon: Icons.umbrella_rounded),
@@ -110,7 +109,8 @@ class SettingsProvider with ChangeNotifier {
         final defaultMap = {for (var w in _getDefaultWidgetList()) w.id: w};
         List<DashboardWidgetConfig> loadedList = [];
         for (var item in jsonList) {
-          final id = item['id'];
+          String id = item['id'];
+          if (id == 'dual_station' || id == 'electricity') continue;
           if (defaultMap.containsKey(id)) {
             loadedList.add(DashboardWidgetConfig.fromJson(item, defaultMap[id]!));
             defaultMap.remove(id);

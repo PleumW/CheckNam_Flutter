@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../providers/sensor_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/location_provider.dart';
+import '../utils/security_utils.dart';
 
 class SosEmergencyModal extends StatefulWidget {
   const SosEmergencyModal({super.key});
@@ -73,7 +74,17 @@ class _SosEmergencyModalState extends State<SosEmergencyModal> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = context.read<AuthProvider>();
       if (auth.user != null) {
-        _nameController.text = auth.user!.displayName ?? auth.user!.email?.split('@').first ?? '';
+        if (auth.fullIdentityText.isNotEmpty) {
+          _nameController.text = auth.fullIdentityText;
+        } else if (auth.user!.displayName != null && auth.user!.displayName!.isNotEmpty) {
+          _nameController.text = auth.user!.displayName!;
+        } else {
+          _nameController.text = auth.user!.email?.split('@').first ?? '';
+        }
+
+        if (auth.phoneNumber.isNotEmpty) {
+          _phoneController.text = auth.phoneNumber;
+        }
       }
     });
   }
@@ -103,7 +114,9 @@ class _SosEmergencyModalState extends State<SosEmergencyModal> {
       final auth = context.read<AuthProvider>();
       String name = _nameController.text.trim();
       if (name.isEmpty) {
-        if (auth.user != null) {
+        if (auth.fullIdentityText.isNotEmpty) {
+          name = auth.fullIdentityText;
+        } else if (auth.user != null) {
           name = auth.user!.displayName ?? auth.user!.email?.split('@').first ?? 'ผู้ประสบภัย';
         } else {
           name = 'ผู้ประสบภัย';
@@ -119,6 +132,10 @@ class _SosEmergencyModalState extends State<SosEmergencyModal> {
         lng: lng,
         situation: _selectedSituation,
         note: note,
+        nationalId: auth.nationalId,
+        dob: auth.dob,
+        nickname: auth.nicknameTh,
+        englishName: auth.fullEnglishName,
       );
 
       if (mounted) {
@@ -133,7 +150,7 @@ class _SosEmergencyModalState extends State<SosEmergencyModal> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'ส่งสัญญาณขอความช่วยเหลือ SOS เรียบร้อยแล้ว! เจ้าหน้าที่จะเร่งตรวจสอบพิกัด',
+                    'ส่งสัญญาณขอความช่วยเหลือ SOS เรียบร้อยแล้ว!',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -157,13 +174,21 @@ class _SosEmergencyModalState extends State<SosEmergencyModal> {
   }
 
   void _shareLocation(double lat, double lng) {
+    final auth = context.read<AuthProvider>();
     final name = _nameController.text.trim().isEmpty ? 'ผู้ประสบภัย' : _nameController.text.trim();
-    final text = '🚨 [ขอความช่วยเหลือฉุกเฉิน SOS]\n'
-        'ผู้แจ้ง: $name\n'
-        'สถานการณ์: $_selectedSituation\n'
-        'เบอร์ติดต่อ: ${_phoneController.text.trim()}\n'
-        'พิกัด GPS: https://maps.google.com/?q=$lat,$lng\n'
-        'รายละเอียด: ${_noteController.text.trim()}';
+    String text = '🚨 [ขอความช่วยเหลือฉุกเฉิน SOS]\nผู้แจ้ง: $name';
+    if (auth.fullEnglishName.isNotEmpty) {
+      text += ' (${auth.fullEnglishName})';
+    }
+    text += '\nเบอร์ติดต่อ: ${_phoneController.text.trim()}';
+    if (auth.nationalId.isNotEmpty) {
+      text += '\nเลขบัตร ปชช: ${SecurityUtils.maskThaiNationalId(auth.nationalId)}';
+    }
+    if (auth.dob.isNotEmpty) {
+      text += '\nวันเกิด (ค.ศ.): ${auth.dob}';
+    }
+    text += '\nสถานการณ์: $_selectedSituation\nพิกัด GPS: https://maps.google.com/?q=$lat,$lng\nรายละเอียด: ${_noteController.text.trim()}';
+
     SharePlus.instance.share(ShareParams(text: text, subject: 'สัญญาณขอความช่วยเหลือ SOS'));
   }
 
@@ -171,263 +196,314 @@ class _SosEmergencyModalState extends State<SosEmergencyModal> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final location = context.watch<LocationProvider>();
+    final auth = context.watch<AuthProvider>();
     final double lat = location.currentPosition?.latitude ?? 13.7563;
     final double lng = location.currentPosition?.longitude ?? 100.5018;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF0F172A) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      padding: EdgeInsets.only(
-        top: 20,
-        left: 20,
-        right: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Top Drag Handle
-              Center(
-                child: Container(
-                  width: 44,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final maxSheetHeight = MediaQuery.of(context).size.height * 0.88;
 
-              // Title Header
-              Row(
+    return AnimatedPadding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      child: Container(
+        constraints: BoxConstraints(maxHeight: maxSheetHeight),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF0F172A) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.redAccent.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.sos_rounded, color: Colors.redAccent, size: 28),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'ส่งสัญญาณขอความช่วยเหลือฉุกเฉิน (SOS)',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.redAccent),
-                        ),
-                        Text(
-                          'พิกัดจะถูกส่งไปยังระบบส่วนกลางและเจ้าหน้าที่กู้ภัยทันที',
-                          style: TextStyle(fontSize: 12, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
-                        ),
-                      ],
+                  // Top Drag Handle
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-              // Location Chip Card
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
-                ),
-                child: Row(
+                // Title Header
+                Row(
                   children: [
-                    const Icon(Icons.my_location_rounded, color: Colors.redAccent, size: 20),
-                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.sos_rounded, color: Colors.redAccent, size: 28),
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('พิกัด GPS ปัจจุบันของคุณ', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                          const Text(
+                            'ส่งสัญญาณขอความช่วยเหลือฉุกเฉิน (SOS)',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.redAccent),
+                          ),
                           Text(
-                            '${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}',
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                            'พิกัดจะถูกส่งไปยังระบบส่วนกลางและเจ้าหน้าที่กู้ภัยทันที',
+                            style: TextStyle(fontSize: 12, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
                           ),
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.share_location_rounded, color: Colors.blueAccent, size: 20),
-                      tooltip: 'แชร์พิกัด',
-                      onPressed: () => _shareLocation(lat, lng),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Citizen Verified Badge Card
+                if (auth.nationalId.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.35)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.verified_user_rounded, color: Colors.green, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ข้อมูลยืนยันตัวตน: ${auth.fullIdentityText}${auth.fullEnglishName.isNotEmpty ? ' (${auth.fullEnglishName})' : ''}',
+                                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.green),
+                                softWrap: true,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'เลขบัตร ปชช: ${SecurityUtils.maskThaiNationalId(auth.nationalId)} | วันเกิด: ${auth.dob}',
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                softWrap: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // Location Chip Card
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.my_location_rounded, color: Colors.redAccent, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('พิกัด GPS ปัจจุบันของคุณ', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                            Text(
+                              '${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}',
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.share_location_rounded, color: Colors.blueAccent, size: 20),
+                        tooltip: 'แชร์พิกัด',
+                        onPressed: () => _shareLocation(lat, lng),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Quick Speed Dial Row
+                const Text(
+                  '📞 โทรสายด่วนฉุกเฉินทันที:',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildQuickCallButton('1784', 'ปภ. สายด่วน', Colors.orange.shade800),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildQuickCallButton('1669', 'กู้ชีพ/ฉุกเฉิน', Colors.red.shade700),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildQuickCallButton('199', 'ดับเพลิง-กู้ภัย', Colors.blue.shade800),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 20),
 
-              // Quick Speed Dial Row
-              const Text(
-                '📞 โทรสายด่วนฉุกเฉินทันที:',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildQuickCallButton('1784', 'ปภ. สายด่วน', Colors.orange.shade800),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildQuickCallButton('1669', 'กู้ชีพ/ฉุกเฉิน', Colors.red.shade700),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildQuickCallButton('199', 'ดับเพลิง-กู้ภัย', Colors.blue.shade800),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // Situation Selector
-              const Text(
-                'ประเภทเหตุฉุกเฉิน:',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: _situations.map((sit) {
-                  final isSelected = _selectedSituation == sit;
-                  return ChoiceChip(
-                    label: Text(
-                      sit,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        color: isSelected ? Colors.white : (isDark ? Colors.grey.shade300 : Colors.black87),
+                // Situation Selector
+                const Text(
+                  'ประเภทเหตุฉุกเฉิน:',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: _situations.map((sit) {
+                    final isSelected = _selectedSituation == sit;
+                    return ChoiceChip(
+                      label: Text(
+                        sit,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          color: isSelected ? Colors.white : (isDark ? Colors.grey.shade300 : Colors.black87),
+                        ),
                       ),
-                    ),
-                    selected: isSelected,
-                    selectedColor: Colors.redAccent,
-                    backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade200,
-                    onSelected: (selected) {
-                      if (selected) setState(() => _selectedSituation = sit);
-                    },
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-
-              // Contact Name & Phone
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _nameController,
-                      decoration: InputDecoration(
-                        labelText: 'ชื่อผู้ติดต่อ',
-                        prefixIcon: const Icon(Icons.person_outline_rounded, size: 18),
-                        isDense: true,
-                        filled: true,
-                        fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _phoneController,
-                      keyboardType: TextInputType.phone,
-                      validator: (val) {
-                        if (val == null || val.trim().isEmpty) return 'กรุณาระบุเบอร์โทร';
-                        return null;
+                      selected: isSelected,
+                      selectedColor: Colors.redAccent,
+                      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade200,
+                      onSelected: (selected) {
+                        if (selected) setState(() => _selectedSituation = sit);
                       },
-                      decoration: InputDecoration(
-                        labelText: 'เบอร์โทรศัพท์ *',
-                        prefixIcon: const Icon(Icons.phone_outlined, size: 18),
-                        isDense: true,
-                        filled: true,
-                        fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+
+                // Contact Name & Phone
+                TextFormField(
+                  controller: _nameController,
+                  decoration: InputDecoration(
+                    labelText: 'ชื่อผู้ติดต่อ / ผู้ประสบภัย',
+                    prefixIcon: const Icon(Icons.person_outline_rounded, size: 20),
+                    isDense: true,
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) return 'กรุณาระบุเบอร์โทรศัพท์ติดต่อ';
+                    return null;
+                  },
+                  decoration: InputDecoration(
+                    labelText: 'เบอร์โทรศัพท์ติดต่อ *',
+                    prefixIcon: const Icon(Icons.phone_outlined, size: 20),
+                    isDense: true,
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                TextFormField(
+                  controller: _noteController,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    labelText: 'จุดสังเกต / ข้อมูลเพิ่มเติม (เช่น ชั้น 2, มีคนแก่ 1 คน)',
+                    prefixIcon: const Icon(Icons.edit_note_rounded, size: 20),
+                    isDense: true,
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Big Action Submit Button
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      foregroundColor: Colors.white,
+                      elevation: 4,
+                      shadowColor: Colors.redAccent.withValues(alpha: 0.5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    icon: _isSubmitting
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Icon(Icons.emergency_share_rounded, size: 22),
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        _isSubmitting ? 'กำลังส่งข้อมูล...' : '🚨 ส่งสัญญาณขอความช่วยเหลือ SOS',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        maxLines: 1,
                       ),
                     ),
+                    onPressed: _isSubmitting ? null : () => _submitSos(lat, lng),
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              TextFormField(
-                controller: _noteController,
-                maxLines: 2,
-                decoration: InputDecoration(
-                  labelText: 'จุดสังเกต / ข้อมูลเพิ่มเติม (เช่น ชั้น 2, มีคนแก่ 1 คน)',
-                  prefixIcon: const Icon(Icons.edit_note_rounded, size: 20),
-                  isDense: true,
-                  filled: true,
-                  fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                 ),
-              ),
-              const SizedBox(height: 20),
-
-              // Big Action Submit Button
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    foregroundColor: Colors.white,
-                    elevation: 4,
-                    shadowColor: Colors.redAccent.withValues(alpha: 0.5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                  icon: _isSubmitting
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Icon(Icons.emergency_share_rounded, size: 22),
-                  label: Text(
-                    _isSubmitting ? 'กำลังส่งข้อมูล...' : '🚨 ส่งสัญญาณขอความช่วยเหลือ SOS',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  onPressed: _isSubmitting ? null : () => _submitSos(lat, lng),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildQuickCallButton(String number, String label, Color color) {
     return InkWell(
       onTap: () => _makeCall(number),
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withValues(alpha: 0.4)),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.phone_forwarded_rounded, color: color, size: 16),
             const SizedBox(height: 2),
-            Text(
-              number,
-              style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                number,
+                style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold),
+              ),
             ),
-            Text(
-              label,
-              style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ),

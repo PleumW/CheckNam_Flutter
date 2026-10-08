@@ -19,7 +19,7 @@ class DeviceManagementScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sensor = context.watch<SensorProvider>();
-    final devices = sensor.devices.values.toList();
+    final devices = sensor.uniqueDeviceList;
     final String selectedId = sensor.selectedDeviceId;
 
     return Scaffold(
@@ -34,10 +34,14 @@ class DeviceManagementScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'อุปกรณ์ที่เชื่อมต่อในระบบ',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                const Expanded(
+                  child: Text(
+                    'อุปกรณ์ที่เชื่อมต่อในระบบ',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -65,20 +69,28 @@ class DeviceManagementScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
                 ),
-                child: const Column(
+                child: Column(
                   children: [
-                    Icon(Icons.sensors_off_rounded, size: 48, color: Colors.grey),
-                    SizedBox(height: 12),
-                    Text(
-                      'ไม่พบอุปกรณ์ใน Firebase',
+                    const Icon(Icons.sensors_off_rounded, size: 48, color: Colors.grey),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'ไม่พบอุปกรณ์ในระบบ',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
-                    SizedBox(height: 6),
-                    Text(
-                      'กรุณาเปิดบอร์ด ESP32/NodeMCU เพื่อส่งข้อมูล หรือตรวจสอบ path /devices',
+                    const SizedBox(height: 6),
+                    const Text(
+                      'กรุณาเปิดบอร์ด ESP32/NodeMCU เพื่อส่งข้อมูล หรือคืนค่าอุปกรณ์เริ่มต้น',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey, fontSize: 12),
                     ),
+                    if (sensor.deletedDeviceIds.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      ElevatedButton.icon(
+                        onPressed: () => sensor.restoreAllDevices(),
+                        icon: const Icon(Icons.restore_rounded),
+                        label: const Text('คืนค่าอุปกรณ์เริ่มต้น'),
+                      ),
+                    ],
                   ],
                 ),
               )
@@ -107,14 +119,18 @@ class DeviceManagementScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
                             child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(
-                                  Icons.memory,
-                                  color: isOnline ? Colors.blueAccent : Colors.grey,
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Icon(
+                                    Icons.memory,
+                                    color: isOnline ? Colors.blueAccent : Colors.grey,
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
@@ -127,13 +143,16 @@ class DeviceManagementScreen extends StatelessWidget {
                                           fontWeight: FontWeight.bold,
                                           fontSize: 16,
                                         ),
+                                        overflow: TextOverflow.ellipsis,
                                       ),
+                                      const SizedBox(height: 2),
                                       Text(
                                         '${dev.boardModel} (ID: ${dev.id})',
                                         style: const TextStyle(
                                           color: Colors.grey,
                                           fontSize: 11,
                                         ),
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ],
                                   ),
@@ -141,6 +160,7 @@ class DeviceManagementScreen extends StatelessWidget {
                               ],
                             ),
                           ),
+                          const SizedBox(width: 8),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
@@ -211,14 +231,10 @@ class DeviceManagementScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       _buildInfoRow(
-                        Icons.bolt_rounded,
-                        'เซ็นเซอร์วัดไฟรั่ว',
-                        dev.hasCurrentSensor
-                            ? (dev.isElectricalLeakage ? '⚠️ ตรวจพบไฟรั่ว!' : 'ปกติ (ติดตั้งแล้ว)')
-                            : 'ยังไม่ได้ติดตั้ง',
-                        valueColor: dev.hasCurrentSensor
-                            ? (dev.isElectricalLeakage ? Colors.red : Colors.green)
-                            : Colors.orange,
+                        Icons.warning_amber_rounded,
+                        'เกณฑ์ระดับน้ำวิกฤต',
+                        '${dev.waterLevelThreshold.toStringAsFixed(0)} ซม.',
+                        valueColor: Colors.orange,
                       ),
                       const SizedBox(height: 10),
                       _buildInfoRow(
@@ -316,8 +332,12 @@ class DeviceManagementScreen extends StatelessWidget {
 
   Widget _buildInfoRow(IconData icon, String label, String value, {Color? valueColor}) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 16, color: Colors.grey),
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(icon, size: 16, color: Colors.grey),
+        ),
         const SizedBox(width: 8),
         Text('$label: ', style: const TextStyle(color: Colors.grey, fontSize: 13)),
         Expanded(

@@ -111,5 +111,31 @@ void main() {
       expect(dev.isDeviceOnline, isFalse);
       expect(dev.onlineStatusText, contains('ออฟไลน์'));
     });
+
+    test('Device switches between offline and online properly', () {
+      final dev = DeviceData(
+        id: 'test_toggle',
+        name: 'สลับออนไลน์/ออฟไลน์',
+        lat: 13.75,
+        lng: 100.50,
+        isOnline: true,
+        lastDataReceived: DateTime.now(),
+        waterLevel: 45.0,
+      );
+
+      // Initially online:
+      expect(dev.isDeviceOnline, isTrue);
+
+      // Device goes offline:
+      dev.isOnline = false;
+      expect(dev.isDeviceOnline, isFalse);
+      expect(dev.onlineStatusText, contains('ออฟไลน์'));
+
+      // Device comes back online:
+      dev.isOnline = true;
+      dev.lastDataReceived = DateTime.now();
+      expect(dev.isDeviceOnline, isTrue);
+      expect(dev.onlineStatusText, equals('ออนไลน์'));
+    });
   });
 }

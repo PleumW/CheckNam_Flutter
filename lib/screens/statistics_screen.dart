@@ -30,6 +30,12 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   @override
   Widget build(BuildContext context) {
     final sensor = context.watch<SensorProvider>();
+    final uniqueDevices = sensor.uniqueDeviceList;
+    final validIds = uniqueDevices.map((d) => d.id).toSet();
+    final effectiveDeviceId = validIds.contains(sensor.selectedDeviceId)
+        ? sensor.selectedDeviceId
+        : (validIds.isNotEmpty ? validIds.first : null);
+
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -39,23 +45,30 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             Row(
               children: [
                 const Text('อุปกรณ์: ', style: TextStyle(fontSize: 12, color: Colors.blueAccent)),
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    isDense: true,
-                    value: sensor.selectedDeviceId,
-                    icon: const Icon(Icons.arrow_drop_down, color: Colors.blueAccent, size: 16),
-                    style: const TextStyle(fontSize: 12, color: Colors.blueAccent, fontWeight: FontWeight.bold),
-                    onChanged: (String? newValue) {
-                      if (newValue != null) {
-                        context.read<SensorProvider>().selectDevice(newValue);
-                      }
-                    },
-                    items: sensor.devices.values.map((device) {
-                      return DropdownMenuItem<String>(
-                        value: device.id,
-                        child: Text(device.name),
-                      );
-                    }).toList(),
+                Expanded(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isDense: true,
+                      isExpanded: true,
+                      value: effectiveDeviceId,
+                      icon: const Icon(Icons.arrow_drop_down, color: Colors.blueAccent, size: 16),
+                      style: const TextStyle(fontSize: 12, color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                      onChanged: (String? newValue) {
+                        if (newValue != null) {
+                          context.read<SensorProvider>().selectDevice(newValue);
+                        }
+                      },
+                      items: uniqueDevices.map((device) {
+                        return DropdownMenuItem<String>(
+                          value: device.id,
+                          child: Text(
+                            device.name,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
                 ),
               ],
@@ -63,40 +76,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           ],
         ),
         actions: [
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: sensor.isDeviceOnline
-                  ? Colors.green.withValues(alpha: 0.15)
-                  : Colors.orange.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: sensor.isDeviceOnline
-                    ? Colors.green.withValues(alpha: 0.35)
-                    : Colors.orange.withValues(alpha: 0.35),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.sensors_rounded,
-                  color: sensor.isDeviceOnline ? Colors.green : Colors.orange,
-                  size: 14,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  sensor.isDeviceOnline ? 'บันทึก 24/7 อัตโนมัติ' : 'รอเชื่อมต่อ 24/7',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: sensor.isDeviceOnline ? Colors.green : Colors.orange,
-                  ),
-                ),
-              ],
-            ),
-          ),
           IconButton(
             icon: const Icon(Icons.share_rounded),
             tooltip: 'ส่งออกรายงานสรุป',
@@ -186,9 +165,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'ประวัติการแจ้งเตือนล่าสุด',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.grey),
+                const Expanded(
+                  child: Text(
+                    'ประวัติการแจ้งเตือนล่าสุด',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.grey),
+                  ),
                 ),
                 if (sensor.alertHistory.isNotEmpty)
                   Text(
@@ -208,9 +189,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 IconData icon;
                 Color color;
                 switch (alert.type) {
-                  case 'leakage':
-                    icon = Icons.bolt;
+                  case 'overflow':
+                    icon = Icons.water_rounded;
                     color = Colors.red;
+                    break;
+                  case 'pluvial':
+                    icon = Icons.location_city_rounded;
+                    color = Colors.deepOrange;
                     break;
                   case 'danger':
                     icon = Icons.error_outline;
@@ -285,14 +270,26 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      time,
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 4),
-                Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.grey, fontSize: 13.5, height: 1.35),
+                ),
               ],
             ),
           ),
@@ -303,11 +300,18 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   Widget _buildCorrelationChart(BuildContext context) {
     final sensor = context.watch<SensorProvider>();
+    final currentDev = sensor.currentDevice;
+    final bool isOnline = currentDev?.isDeviceOnline ?? false;
     List<FlSpot> waterLevelSpots = [];
     double maxX = 20;
 
     if (_selectedRange == 'Live') {
-      waterLevelSpots = sensor.waterLevelHistory.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList();
+      if (!isOnline) {
+        // เมื่ออุปกรณ์ออฟไลน์ ให้กราฟเป็น 0 ทันที ไม่ค้างที่ค่าล่าสุด
+        waterLevelSpots = List.generate(21, (i) => FlSpot(i.toDouble(), 0.0));
+      } else {
+        waterLevelSpots = sensor.waterLevelHistory.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList();
+      }
       maxX = 20;
     } else if (_selectedRange == '24h') {
       final h24 = sensor.history24h;
@@ -330,13 +334,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     }
 
     if (waterLevelSpots.isEmpty) {
-      waterLevelSpots.add(FlSpot(0, sensor.waterLevel));
+      waterLevelSpots.add(FlSpot(0, isOnline ? sensor.waterLevel : 0.0));
     }
 
-    double maxY = 200.0;
+    double maxY = 100.0;
     if (waterLevelSpots.isNotEmpty) {
       final highest = waterLevelSpots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
-      if (highest > 160) {
+      if (highest > 80) {
         maxY = ((highest * 1.25) / 50).ceil() * 50.0;
       }
     }
@@ -429,15 +433,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             Container(
               width: 12,
               height: 12,
-              decoration: const BoxDecoration(
-                color: Colors.blue,
+              decoration: BoxDecoration(
+                color: isOnline ? Colors.blue : Colors.grey,
                 shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: 6),
-            const Text(
-              'ระดับน้ำ (ซม.)',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blue),
+            Text(
+              isOnline ? 'ระดับน้ำ (ซม.)' : 'ระดับน้ำ (ซม.) • อุปกรณ์ออฟไลน์ (กราฟเป็น 0)',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: isOnline ? Colors.blue : Colors.grey,
+              ),
             ),
             if (sensor.isLoadingHistory && _selectedRange != 'Live') ...[
               const SizedBox(width: 8),
@@ -460,7 +468,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               lineBarsData: [
                 LineChartBarData(
                   spots: waterLevelSpots,
-                  color: Colors.blue,
+                  color: isOnline ? Colors.blue : Colors.grey,
                   isCurved: true,
                   barWidth: 3.5,
                   dotData: const FlDotData(show: false),
@@ -564,173 +572,94 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
 
 
+  String _formatLastRecordDateTime(DateTime dt) {
+    const months = [
+      '', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+    ];
+    final now = DateTime.now();
+    final bool isToday = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+    final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
+    if (isToday) {
+      return 'วันนี้ $timeStr';
+    }
+    return '${dt.day} ${months[dt.month]} ${dt.year + 543} $timeStr';
+  }
+
   Widget _buildAutoLoggingStatusCard(BuildContext context, SensorProvider sensor) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final dev = sensor.currentDevice;
     final bool isOnline = dev?.isDeviceOnline ?? false;
-    final int count24h = sensor.history24h.length;
-    final int count7d = sensor.history7d.length;
 
-    // หาเวลาที่บันทึกจุดล่าสุด
-    String lastRecordTimeStr = 'กำลังรับข้อมูล...';
+    DateTime? lastRecordDt;
     if (sensor.history24h.isNotEmpty) {
       final lastTs = sensor.history24h.last['timestamp'];
       if (lastTs is num) {
-        final dt = DateTime.fromMillisecondsSinceEpoch(lastTs.toInt());
-        lastRecordTimeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
+        lastRecordDt = DateTime.fromMillisecondsSinceEpoch(lastTs.toInt());
       }
-    } else if (dev?.lastDataReceived != null) {
-      final dt = dev!.lastDataReceived!;
-      lastRecordTimeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
     }
+    if (lastRecordDt == null && dev?.lastDataReceived != null) {
+      lastRecordDt = dev!.lastDataReceived;
+    }
+
+    final String lastRecordTimeStr = lastRecordDt != null
+        ? _formatLastRecordDateTime(lastRecordDt)
+        : 'กำลังรอข้อมูลจากอุปกรณ์...';
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: isOnline ? Colors.green.withValues(alpha: 0.3) : (isDark ? Colors.white10 : Colors.black12),
-          width: 1.2,
+          width: 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: isOnline ? Colors.green : Colors.orange,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: RichText(
+              overflow: TextOverflow.ellipsis,
+              text: TextSpan(
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+                ),
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: (isOnline ? Colors.green : Colors.blueAccent).withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.cloud_sync_rounded,
-                      color: isOnline ? Colors.green : Colors.blueAccent,
-                      size: 20,
-                    ),
+                  const TextSpan(
+                    text: 'บันทึกล่าสุด: ',
+                    style: TextStyle(color: Colors.grey),
                   ),
-                  const SizedBox(width: 8),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'บันทึกสถิติ 24/7 อัตโนมัติจากอุปกรณ์',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
-                      ),
-                      Text(
-                        'บันทึกผ่านเซนเซอร์ตลอดเวลาโดยไม่ต้องกดบันทึกเอง',
-                        style: TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
-                    ],
+                  TextSpan(
+                    text: lastRecordTimeStr,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: isOnline
-                      ? Colors.green.withValues(alpha: 0.15)
-                      : Colors.orange.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: isOnline ? Colors.green.withValues(alpha: 0.4) : Colors.orange.withValues(alpha: 0.4),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: isOnline ? Colors.green : Colors.orange,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      isOnline ? 'ออนไลน์ 24/7' : 'ออฟไลน์',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: isOnline ? Colors.green : Colors.orange,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF0F172A) : Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildAutoLogStatItem(
-                  label: 'จุดบันทึก 24 ชม.',
-                  value: '$count24h จุด',
-                  icon: Icons.history_toggle_off_rounded,
-                  color: Colors.blueAccent,
-                ),
-                Container(width: 1, height: 26, color: isDark ? Colors.white12 : Colors.grey.shade300),
-                _buildAutoLogStatItem(
-                  label: 'สถิติ 7 วัน',
-                  value: '$count7d จุด',
-                  icon: Icons.calendar_view_week_rounded,
-                  color: Colors.purpleAccent,
-                ),
-                Container(width: 1, height: 26, color: isDark ? Colors.white12 : Colors.grey.shade300),
-                _buildAutoLogStatItem(
-                  label: 'บันทึกล่าสุด',
-                  value: lastRecordTimeStr,
-                  icon: Icons.check_circle_rounded,
-                  color: Colors.green,
-                ),
-              ],
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isOnline ? '24/7' : 'ออฟไลน์',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: isOnline ? Colors.green : Colors.orange,
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildAutoLogStatItem({
-    required String label,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Column(
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 13, color: color),
-            const SizedBox(width: 4),
-            Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
-          ],
-        ),
-        const SizedBox(height: 2),
-        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-      ],
     );
   }
 

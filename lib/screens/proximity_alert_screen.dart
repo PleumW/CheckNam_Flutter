@@ -33,6 +33,20 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
     _scaleAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final args = ModalRoute.of(context)?.settings.arguments as DeviceData?;
+      final targetDev = widget.device ?? args;
+      if (targetDev != null) {
+        final bool isSirenActive = targetDev.isFloodEmergency ||
+            targetDev.waterLevel >= 50.0 ||
+            targetDev.earlyWarningSeverity == EarlyWarningSeverity.critical;
+        if (isSirenActive && AudioAlarmService().isAlarmEnabled) {
+          AudioAlarmService().startSiren();
+        }
+      }
+    });
   }
 
   @override
@@ -59,7 +73,10 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
     // Use passed device or route argument or selected device or first available
     final DeviceData? argsDevice =
         ModalRoute.of(context)?.settings.arguments as DeviceData?;
-    final DeviceData? targetDevice = widget.device ??
+    final String targetId = widget.device?.id ?? argsDevice?.id ?? sensor.selectedDeviceId;
+    final DeviceData? liveDev = sensor.devices[targetId];
+    final DeviceData? targetDevice = liveDev ??
+        widget.device ??
         argsDevice ??
         sensor.currentDevice ??
         (sensor.devices.isNotEmpty ? sensor.devices.values.first : null);
@@ -89,80 +106,68 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
     final LatLng devLatLng = LatLng(targetDevice.lat, targetDevice.lng);
     final String distText = _calculateDistanceText(userLatLng, devLatLng);
 
-    final bool isLeakage = targetDevice.isElectricalLeakage;
+    const Distance distanceCalc = Distance();
+    final double? distanceMeters = userLatLng != null
+        ? distanceCalc.as(LengthUnit.Meter, userLatLng, devLatLng)
+        : null;
+    final bool isWithin100Km = distanceMeters != null && distanceMeters <= 100000.0;
+
     final double waterLevel = targetDevice.waterLevel;
-    final bool isCriticalWater = waterLevel >= 60.0;
-    final bool isFloodDanger = targetDevice.isFloodDanger;
+    final bool isEmergency = targetDevice.isFloodEmergency || waterLevel >= 50.0;
+    final bool isCriticalWater = targetDevice.isFloodDanger || waterLevel >= 30.0;
 
     final bool isEWCritical = targetDevice.earlyWarningSeverity == EarlyWarningSeverity.critical;
     final bool isEWAlert = targetDevice.earlyWarningSeverity == EarlyWarningSeverity.alert;
     final bool isEWAdvisory = targetDevice.earlyWarningSeverity == EarlyWarningSeverity.advisory;
-    final bool isEarlyWarning = isEWCritical || isEWAlert || isEWAdvisory;
 
-    final bool isCritical = isLeakage || isCriticalWater || isFloodDanger || isEWCritical;
-    final bool isWarning = !isCritical && (waterLevel >= 40.0 || targetDevice.rainfall >= 30.0 || isEWAlert);
+    final bool isCritical = isEmergency || isCriticalWater || isEWCritical;
+    final bool isAdvanceAlert = !isCritical && isEWAlert;
 
     // Color definitions based on severity
-    final Color primaryColor = isCritical
-        ? (isLeakage ? const Color(0xFFF59E0B) : const Color(0xFFEF4444))
-        : (isWarning ? const Color(0xFFF97316) : const Color(0xFFEAB308));
+    final Color primaryColor = isEmergency
+        ? const Color(0xFFDC2626)
+        : (isCritical
+            ? const Color(0xFFEF4444)
+            : (isAdvanceAlert ? const Color(0xFFF97316) : const Color(0xFFEAB308)));
 
-    // Dynamic Retreat Guidance
     final String severityTitle;
-    final String retreatCommand;
-    final String retreatDistance;
-    final String guidanceDescription;
+    final String categoryBanner;
+    final String badgeText;
+    final String safetyAdvice;
     final IconData hazardIcon;
 
-    if (isLeakage) {
-      severityTitle = 'อันตรายสูงสุด: ตรวจพบกระแสไฟฟ้ารั่วในน้ำ!';
-      retreatCommand = 'ห้ามเข้าใกล้เด็ดขาด! ให้หยุดและถอยห่างทันที';
-      retreatDistance = 'ถอยห่างออกไปอย่างน้อย 300 - 500 เมตร';
-      guidanceDescription =
-          'ตรวจพบกระแสไฟฟ้ารั่วไหลลงสู่น้ำท่วมขัง เสี่ยงต่อการถูกไฟดูดถึงแก่ชีวิต ห้ามเดินลุยน้ำหรือขับขี่ยานพาหนะผ่านบริเวณนี้เด็ดขาด ให้กลับรถหรือถอยหลังทันที';
-      hazardIcon = Icons.bolt_rounded;
-    } else if (isCriticalWater || isFloodDanger) {
-      severityTitle = 'อันตรายวิกฤต: ระดับน้ำท่วมสูงลึกวิกฤต!';
-      retreatCommand = 'น้ำลึกอันตราย! ห้ามเข้าใกล้เด็ดขาด';
-      retreatDistance = 'ถอยห่างออกไปอย่างน้อย 300 - 500 เมตร';
-      guidanceDescription =
-          'ระดับน้ำท่วมสูงเกิน 60 ซม. กระแสน้ำอาจเชี่ยวกรากและมองไม่เห็นท่อระบายน้ำ เสี่ยงต่อการพลัดตกหรือรถยนต์ถูกกระแสน้ำพัดลอยจมน้ำ ให้หยุดรถและถอยห่างทันที';
-      hazardIcon = Icons.warning_amber_rounded;
-    } else if (isEWCritical) {
-      severityTitle = '🚨 เตือนภัยล่วงหน้าขั้นวิกฤต: คาดการณ์เสี่ยงน้ำท่วมฉับพลัน!';
-      retreatCommand = 'โปรดหลีกเลี่ยงเส้นทางนี้ทันที! เสี่ยงน้ำท่วมสูงข้างหน้า';
-      retreatDistance = 'เปลี่ยนเส้นทางทันที / ถอยห่างจากพื้นที่ลุ่มต่ำ 500 - 1,000 เมตร';
-      guidanceDescription =
-          'ระบบวิเคราะห์ความเร็วเซนเซอร์ + พยากรณ์ฝน AI คาดการณ์น้ำขึ้นเร็วมากถึง +${targetDevice.compoundRisingSpeed.toStringAsFixed(1)} ซม./ชม. (เซนเซอร์: ${targetDevice.risingSpeed.toStringAsFixed(1)} ซม./ชม., โอกาสฝน: ${targetDevice.forecastRainProb30}%) ${targetDevice.compoundTimeToDangerText} อาจเกิดน้ำท่วมสูงฉับพลันบนผิวทาง ขอให้ผู้ใช้หลีกเลี่ยงเส้นทางนี้ทันทีและใช้เส้นทางเลี่ยงที่ปลอดภัย';
-      hazardIcon = Icons.alt_route_rounded;
-    } else if (isEWAlert) {
-      severityTitle = '⚠️ เตือนภัยล่วงหน้า: ระดับน้ำมีแนวโน้มขึ้นเร็ว เสี่ยงน้ำท่วมทาง';
-      retreatCommand = 'โปรดหลีกเลี่ยงเส้นทางนี้! แนะนำให้ใช้ทางเลี่ยงล่วงหน้า';
-      retreatDistance = 'ถอยห่างอย่างน้อย 500 เมตร หรือใช้ทางเลี่ยง';
-      guidanceDescription =
-          'ตรวจพบแนวโน้มระดับน้ำเพิ่มขึ้นรวดเร็ว +${targetDevice.compoundRisingSpeed.toStringAsFixed(1)} ซม./ชม. ร่วมกับมีความเสี่ยงฝนตกในพื้นที่ (${targetDevice.forecastRainProb30}%) ${targetDevice.compoundTimeToDangerText} อาจมีน้ำท่วมขังผิวจราจร แนะนำให้วางแผนเปลี่ยนเส้นทางหรือกลับรถเพื่อความปลอดภัย';
-      hazardIcon = Icons.alt_route_rounded;
-    } else if (isWarning) {
-      severityTitle = 'เตือนภัย: ระดับน้ำท่วมสูง รถเล็กห้ามผ่าน';
-      retreatCommand = 'รถเล็กงดผ่าน! ให้กลับรถและเปลี่ยนเส้นทาง';
-      retreatDistance = 'ถอยห่างอย่างน้อย 500 เมตร หรือใช้ทางเลี่ยง';
-      guidanceDescription =
-          'ระดับน้ำท่วมผิวจราจรสูง 40-59 ซม. น้ำอาจเข้าท่อไอเสียทำให้เครื่องยนต์ดับติดค้างในน้ำได้ แนะนำให้กลับรถและใช้เส้นทางเลี่ยงที่ปลอดภัย';
-      hazardIcon = Icons.report_problem_rounded;
-    } else if (isEWAdvisory) {
-      severityTitle = 'ℹ️ เฝ้าระวังล่วงหน้า: สภาพอากาศอาจส่งผลให้น้ำท่วมขัง';
-      retreatCommand = 'ชะลอความเร็ว ระวังจุดน้ำท่วมและเตรียมเส้นทางเลี่ยง';
-      retreatDistance = 'เฝ้าระวังในระยะ 800 - 1,000 เมตร';
-      guidanceDescription =
-          'พยากรณ์โอกาสฝนตก ${targetDevice.forecastRainProb30}% อัตราการเพิ่มระดับน้ำคาดการณ์ +${targetDevice.compoundRisingSpeed.toStringAsFixed(1)} ซม./ชม. โปรดชะลอความเร็ว ระมัดระวังน้ำท่วมขังรอระบายข้างหน้า และเตรียมทางเลี่ยงหากฝนตกต่อเนื่อง';
-      hazardIcon = Icons.cloudy_snowing;
+    if (isEmergency) {
+      badgeText = 'วิกฤตสูงสุด';
+      categoryBanner = 'ระบบเตือนภัยวิกฤตสูงสุด (Emergency Level)';
+      hazardIcon = Icons.emergency_rounded;
+      severityTitle = 'สถานะ : วิกฤตสูงสุด';
+      safetyAdvice = 'วิธีรับมือ: ตัดสะพานไฟ • อพยพขึ้นที่สูงทันที • ห้ามลุยน้ำเชี่ยว';
+    } else if (isCritical) {
+      badgeText = 'วิกฤต';
+      categoryBanner = 'ระบบเตือนภัยวิกฤต (Crisis Level)';
+      hazardIcon = Icons.crisis_alert_rounded;
+      if (isEWCritical) {
+        severityTitle = 'สถานะ : วิกฤตเตือนภัยล่วงหน้า';
+      } else {
+        severityTitle = 'สถานะ : วิกฤต';
+      }
+      safetyAdvice = 'วิธีรับมือ: ยกของขึ้นที่สูง • สับคัตเอาต์ตัดไฟ • ห้ามรถทุกชนิดผ่าน';
+    } else if (isAdvanceAlert) {
+      badgeText = 'เตือนภัยล่วงหน้า';
+      categoryBanner = 'ระบบเตือนภัยล่วงหน้า (Early Warning System)';
+      hazardIcon = Icons.trending_up_rounded;
+      severityTitle = 'สถานะ : เตือนภัยล่วงหน้า';
+      safetyAdvice = 'วิธีรับมือ: เตรียมยกของขึ้นที่สูง • เคลื่อนย้ายรถไปที่ดอน • ติดตามระดับน้ำใกล้ชิด';
     } else {
-      severityTitle = 'เฝ้าระวัง: พื้นที่น้ำท่วมขังรอระบายข้างหน้า';
-      retreatCommand = 'ชะลอความเร็ว ระวังจุดน้ำท่วมข้างหน้า';
-      retreatDistance = 'เฝ้าระวังในระยะ 800 - 1,000 เมตร';
-      guidanceDescription =
-          'มีน้ำท่วมขังรอการระบายในพื้นที่ข้างหน้า โปรดชะลอความเร็วเพื่อลดคลื่นน้ำ หลีกเลี่ยงการเดินเท้าลุยน้ำ และระวังสัตว์มีพิษ';
-      hazardIcon = Icons.info_outline_rounded;
+      badgeText = 'เฝ้าระวัง';
+      categoryBanner = 'ระบบเฝ้าระวังระดับน้ำ (Water Level Watch)';
+      hazardIcon = isEWAdvisory ? Icons.cloudy_snowing : Icons.warning_amber_rounded;
+      if (isEWAdvisory) {
+        severityTitle = 'สถานะ : เฝ้าระวังล่วงหน้า';
+      } else {
+        severityTitle = 'สถานะ : เฝ้าระวัง';
+      }
+      safetyAdvice = 'วิธีรับมือ: เตรียมยกของมีค่า • เคลื่อนย้ายรถไปที่ปลอดภัย • เฝ้าระวังสภาพอากาศ';
     }
 
     return Scaffold(
@@ -190,7 +195,7 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
                           icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
                           tooltip: isCritical ? 'ย่อหน้าต่างเตือนภัย (จะเด้งเตือนซ้ำตลอดเวลา)' : 'ปิดหน้าต่างเตือนภัย',
                           onPressed: () {
-                            AudioAlarmService().mute();
+                            AudioAlarmService().stopSiren();
                             Navigator.pop(context);
                             if (isCritical) {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -206,27 +211,7 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
                       ),
                       const SizedBox(width: 8),
 
-                      // 2. ปุ่มย้ายตำแหน่ง / เปิดแผนที่ดูทางเลี่ยงหนีน้ำ
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.blueAccent.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.45)),
-                        ),
-                        child: IconButton(
-                          icon: const Icon(Icons.near_me_rounded, color: Colors.lightBlueAccent, size: 20),
-                          tooltip: 'ย้ายตำแหน่ง / ดูเส้นทางเลี่ยงบนแผนที่',
-                          onPressed: () {
-                            sensor.selectDevice(targetDevice.id);
-                            AlertManager.grantEvacuationGracePeriod(const Duration(seconds: 30));
-                            Navigator.pop(context);
-                            Navigator.pushNamed(context, '/map');
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-
-                      // 3. ปุ่มปิดเสียงวิกฤต (ข้างๆ ปุ่มย้ายตำแหน่ง)
+                      // 2. ปุ่มปิดเสียงวิกฤต
                       AnimatedBuilder(
                         animation: AudioAlarmService(),
                         builder: (context, _) {
@@ -292,11 +277,11 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(isCritical ? Icons.emergency_rounded : Icons.near_me_rounded, color: primaryColor, size: 14),
+                          Icon(isCritical ? Icons.emergency_rounded : (isAdvanceAlert ? Icons.warning_amber_rounded : Icons.info_outline_rounded), color: primaryColor, size: 14),
                           const SizedBox(width: 5),
                           Flexible(
                             child: Text(
-                              isCritical ? '🚨 สภาวะวิกฤต' : 'Proximity GPS',
+                              badgeText,
                               style: TextStyle(
                                 color: primaryColor,
                                 fontSize: 11,
@@ -340,9 +325,7 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
 
               // Emergency Title Banner
               Text(
-                isEarlyWarning
-                    ? 'ตรวจพบความเสี่ยงน้ำท่วมล่วงหน้า!'
-                    : 'คุณกำลังเข้าใกล้จุดเสี่ยงอันตราย!',
+                categoryBanner,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: primaryColor,
@@ -362,178 +345,178 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
                   height: 1.3,
                 ),
               ),
-              if (isCritical) ...[
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.22),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.85), width: 1.5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.redAccent.withValues(alpha: 0.25),
-                        blurRadius: 14,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.emergency_rounded, color: Colors.redAccent, size: 26),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isEWCritical
-                                  ? 'เตือนภัยล่วงหน้าขั้นวิกฤต - แสดงหน้าต่างเตือนภัยตลอดเวลา!'
-                                  : 'ระดับน้ำขึ้นวิกฤต - แสดงหน้าต่างเตือนภัยตลอดเวลา!',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              isEWCritical
-                                  ? 'ระบบวิเคราะห์พบน้ำขึ้นเร็วและเสี่ยงน้ำท่วมฉับพลันสูง หน้าต่างเตือนภัยนี้จะแสดงผลต่อเนื่องเพื่อให้ท่านหลีกเลี่ยงเส้นทางทันเวลา'
-                                  : 'หน้าต่างเตือนภัยนี้จะแจ้งเตือนตลอดเวลาต่อเนื่อง เพื่อความปลอดภัยสูงสุด จนกว่าระดับน้ำจะลดลงสู่เกณฑ์ปกติ หรือท่านถอยห่างพ้นจุดเสี่ยง',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.88),
-                                fontSize: 11.5,
-                                height: 1.35,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
 
-              // Target Station & Real-Time Distance Card
+              // กล่องข้อมูลสรุปหลัก: 1. แจ้งเตือนมาจากอุปกรณ์ไหน 2. ตัวเราห่างจากอุปกรณ์แค่ไหน
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                  color: Colors.white.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: primaryColor.withValues(alpha: 0.45), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: primaryColor.withValues(alpha: 0.12),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
                 child: Column(
                   children: [
+                    // 1. แจ้งมาจากอุปกรณ์ไหน
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(10),
+                          padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.blueAccent.withValues(alpha: 0.15),
+                            color: primaryColor.withValues(alpha: 0.15),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.location_on_rounded, color: Colors.blueAccent, size: 22),
+                          child: Icon(Icons.sensors_rounded, color: primaryColor, size: 28),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
+                                'แจ้งเตือนมาจากอุปกรณ์',
+                                style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
                                 targetDevice.name,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 16,
+                                  fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'สถานีรหัส: ${targetDevice.id}',
-                                style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
+                                'รหัส: ${targetDevice.id} (${targetDevice.stationTypeName}) • ระดับน้ำ: ${waterLevel.toStringAsFixed(1)} ซม.',
+                                style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'ระยะเซนเซอร์วัดได้: ${targetDevice.sensorDistance.toStringAsFixed(1)} ซม. (ติดสูง 100 ซม.)',
+                                style: TextStyle(color: Colors.grey.shade300, fontSize: 11.5),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'ฮาร์ดแวร์: ${targetDevice.hardwareStatusText}',
+                                style: TextStyle(color: primaryColor, fontSize: 11.5, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'สัญจร: ${targetDevice.trafficImpactText}',
+                                style: const TextStyle(color: Color(0xFFFDE68A), fontSize: 11.5),
                               ),
                             ],
                           ),
                         ),
                       ],
                     ),
-                    const Divider(height: 24, color: Colors.white12),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Divider(color: Colors.white12, height: 1),
+                    ),
+                    // 2. ตัวเราห่างจากอุปกรณ์แค่ไหน
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _buildMetricChip(
-                          title: 'ระยะห่างปัจจุบัน',
-                          value: distText,
-                          color: primaryColor,
-                          icon: Icons.directions_walk_rounded,
-                        ),
-                        Container(width: 1, height: 36, color: Colors.white12),
-                        _buildMetricChip(
-                          title: 'ระดับน้ำที่จุดนั้น',
-                          value: '${waterLevel.toStringAsFixed(1)} ซม.',
-                          color: isCritical ? Colors.redAccent : Colors.orangeAccent,
-                          icon: Icons.water_drop_rounded,
-                        ),
-                        if (isLeakage) ...[
-                          Container(width: 1, height: 36, color: Colors.white12),
-                          _buildMetricChip(
-                            title: 'กระแสไฟฟ้า',
-                            value: 'ไฟฟ้ารั่ว!',
-                            color: Colors.amber,
-                            icon: Icons.bolt_rounded,
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blueAccent.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
                           ),
-                        ],
+                          child: const Icon(Icons.my_location_rounded, color: Colors.lightBlueAccent, size: 28),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ตัวเราห่างจากอุปกรณ์',
+                                style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                              ),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 8,
+                                runSpacing: 4,
+                                children: [
+                                  Text(
+                                    distText,
+                                    style: TextStyle(
+                                      color: primaryColor,
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: -0.5,
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: (isWithin100Km ? Colors.green : Colors.orange).withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: (isWithin100Km ? Colors.green : Colors.orange).withValues(alpha: 0.4),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      isWithin100Km ? 'ในรัศมี 100 กม.' : 'นอกรัศมี 100 กม.',
+                                      style: TextStyle(
+                                        color: isWithin100Km ? Colors.greenAccent : Colors.orangeAccent,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // Early Warning & Compound Speed Analysis Card (เตือนภัยล่วงหน้า & คำแนะนำเลี่ยงเส้นทาง)
-              if (isEarlyWarning) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: primaryColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: primaryColor.withValues(alpha: 0.4), width: 1.5),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      child: Divider(color: Colors.white12, height: 1),
+                    ),
+                    // 2.1 พยากรณ์ระดับน้ำล่วงหน้า (คำนวณผ่านแอปพลิเคชัน)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: primaryColor.withValues(alpha: 0.2),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
-                          ),
+                          Icon(Icons.auto_graph_rounded, color: primaryColor, size: 20),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
-                                  'วิเคราะห์ความเร็ว & เตือนภัยล่วงหน้า (AI)',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14.5,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
                                 Text(
-                                  targetDevice.smartEarlyWarningTitle,
+                                  'พยากรณ์ระดับน้ำล่วงหน้า (ประมวลผลผ่าน App):',
                                   style: TextStyle(
                                     color: primaryColor,
                                     fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'อีก 30 นาที: ${targetDevice.predictedWaterLevel30.toStringAsFixed(1)} ซม. | อีก 60 นาที: ${targetDevice.predictedWaterLevel60.toStringAsFixed(1)} ซม. (โอกาสฝน ${targetDevice.forecastRainProb30}%)',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -542,339 +525,92 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.black26,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('ความเร็วรวมคาดการณ์', style: TextStyle(color: Colors.grey, fontSize: 10.5)),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '+${targetDevice.compoundRisingSpeed.toStringAsFixed(1)} ซม./ชม.',
-                                    style: TextStyle(color: primaryColor, fontSize: 16, fontWeight: FontWeight.bold),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.black26,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('โอกาสฝน 30 นาที', style: TextStyle(color: Colors.grey, fontSize: 10.5)),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '${targetDevice.forecastRainProb30}% (${targetDevice.rainfall.toStringAsFixed(1)} มม.)',
-                                    style: const TextStyle(color: Colors.amberAccent, fontSize: 14, fontWeight: FontWeight.bold),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: primaryColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.timer_outlined, color: Colors.white, size: 16),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                targetDevice.compoundTimeToDangerText,
-                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          const Icon(Icons.alt_route_rounded, color: Colors.lightGreenAccent, size: 16),
-                          const SizedBox(width: 6),
-                          const Expanded(
-                            child: Text(
-                              'คำแนะนำ: อาจเกิดน้ำท่วมสูง โปรดหลีกเลี่ยงเส้นทางนี้และใช้ทางเลี่ยง',
-                              style: TextStyle(
-                                color: Colors.lightGreenAccent,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-              ],
-
-              // Big Retreat Instruction Card (Highlight requirement: "ให้ถอยห่างตามระดับความอันตรายของระดับน้ำ")
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      primaryColor.withValues(alpha: 0.22),
-                      primaryColor.withValues(alpha: 0.08),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: primaryColor.withValues(alpha: 0.5), width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: primaryColor.withValues(alpha: 0.15),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
                     ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: primaryColor,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.pan_tool_rounded, color: Colors.black87, size: 16),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            retreatCommand,
-                            style: TextStyle(
-                              color: primaryColor,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
+                    // 3. วิธีรับมือและป้องกันตนเองเบื้องต้น (Minimalist)
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                        color: primaryColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: primaryColor.withValues(alpha: 0.28)),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.arrow_back_rounded, color: primaryColor, size: 18),
-                          const SizedBox(width: 8),
+                          Icon(Icons.shield_outlined, color: primaryColor, size: 20),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'ระยะปลอดภัยที่แนะนำ: $retreatDistance',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
+                              safetyAdvice,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.95),
+                                fontSize: 12,
+                                height: 1.35,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      guidanceDescription,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontSize: 13,
-                        height: 1.45,
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Action Buttons
+              if (isCritical) ...[
+                // ในสภาวะวิกฤต: แสดงปุ่ม SOS และโทร 191 / 1784
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          elevation: 0,
+                        ),
+                        icon: const Icon(Icons.sos_rounded, size: 20),
+                        label: const Text(
+                          'ขอความช่วยเหลือ SOS',
+                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: () {
+                          AlertManager.grantEvacuationGracePeriod(const Duration(seconds: 30));
+                          Navigator.pop(context);
+                          SosEmergencyModal.show(context);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white24),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        icon: const Icon(Icons.phone_in_talk_rounded, size: 18),
+                        label: const Text(
+                          'โทร 191 / 1784',
+                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: () async {
+                          AlertManager.grantEvacuationGracePeriod(const Duration(seconds: 30));
+                          final uri = Uri.parse('tel:1784');
+                          if (await canLaunchUrl(uri)) await launchUrl(uri);
+                        },
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 18),
-
-              // Siren Sound Control Banner (if leakage or critical)
-              AnimatedBuilder(
-                animation: AudioAlarmService(),
-                builder: (context, _) {
-                  final alarm = AudioAlarmService();
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: alarm.isPlaying
-                          ? Colors.red.withValues(alpha: 0.18)
-                          : Colors.white.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: alarm.isPlaying
-                            ? Colors.redAccent.withValues(alpha: 0.5)
-                            : Colors.white12,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          alarm.isPlaying ? Icons.campaign_rounded : Icons.volume_off_rounded,
-                          color: alarm.isPlaying ? Colors.redAccent : Colors.grey,
-                          size: 22,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            alarm.isPlaying
-                                ? '🚨 ไซเรนเตือนภัยกำลังทำงาน!'
-                                : 'เสียงไซเรนปิดอยู่',
-                            style: TextStyle(
-                              color: alarm.isPlaying ? Colors.redAccent : Colors.grey.shade400,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        TextButton.icon(
-                          style: TextButton.styleFrom(
-                            backgroundColor: alarm.isPlaying
-                                ? Colors.redAccent.withValues(alpha: 0.2)
-                                : Colors.white10,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          icon: Icon(
-                            alarm.isPlaying ? Icons.volume_off : Icons.volume_up,
-                            size: 14,
-                            color: Colors.white,
-                          ),
-                          label: Text(
-                            alarm.isPlaying ? 'ปิดเสียง' : 'เปิดเสียง',
-                            style: const TextStyle(fontSize: 11, color: Colors.white),
-                          ),
-                          onPressed: () {
-                            if (alarm.isPlaying) {
-                              alarm.mute();
-                            } else {
-                              alarm.resetMute();
-                              alarm.startSiren();
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-
-              // Action Buttons
-              // 1. Open Map & Route Button
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueAccent,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  elevation: 0,
-                ),
-                icon: const Icon(Icons.map_rounded, size: 20),
-                label: const Text(
-                  'เปิดแผนที่ดูจุดเสี่ยง & ทางเลี่ยง (Safe Route)',
-                  style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
-                ),
-                onPressed: () {
-                  sensor.selectDevice(targetDevice.id);
-                  AlertManager.grantEvacuationGracePeriod(const Duration(seconds: 30));
-                  Navigator.pop(context);
-                  Navigator.pushNamed(context, '/map');
-                },
-              ),
-              const SizedBox(height: 10),
-
-              // 2. SOS Emergency Button & Hotline Row
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.redAccent,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        elevation: 0,
-                      ),
-                      icon: const Icon(Icons.sos_rounded, size: 20),
-                      label: const Text(
-                        'ขอความช่วยเหลือ SOS',
-                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
-                      ),
-                      onPressed: () {
-                        AlertManager.grantEvacuationGracePeriod(const Duration(seconds: 30));
-                        Navigator.pop(context);
-                        showModalBottomSheet(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => const SosEmergencyModal(),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white24),
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
-                      icon: const Icon(Icons.phone_in_talk_rounded, size: 18),
-                      label: const Text(
-                        'โทร 191 / 1784',
-                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
-                      ),
-                      onPressed: () async {
-                        AlertManager.grantEvacuationGracePeriod(const Duration(seconds: 30));
-                        final uri = Uri.parse('tel:1784');
-                        if (await canLaunchUrl(uri)) await launchUrl(uri);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // 3. Dismiss & Snooze Button
-              if (isCritical)
+                const SizedBox(height: 12),
                 TextButton.icon(
                   onPressed: () {
-                    AudioAlarmService().mute();
+                    AudioAlarmService().stopSiren();
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
@@ -905,15 +641,37 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
                       decoration: TextDecoration.underline,
                     ),
                   ),
-                )
-              else
+                ),
+              ] else ...[
+                // ในสภาวะเฝ้าระวัง และเตือนภัยล่วงหน้า: แสดงโทร 1784 และปุ่มรับทราบสถานการณ์ (มินิมอล)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white24),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    icon: const Icon(Icons.phone_in_talk_rounded, size: 18, color: Colors.amberAccent),
+                    label: const Text(
+                      'โทรสายด่วน ปภ. รับมือภัยพิบัติ (1784)',
+                      style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () async {
+                      final uri = Uri.parse('tel:1784');
+                      if (await canLaunchUrl(uri)) await launchUrl(uri);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
                 TextButton(
                   onPressed: () {
-                    AudioAlarmService().mute();
+                    AudioAlarmService().stopSiren();
                     Navigator.pop(context);
                   },
                   child: Text(
-                    'รับทราบสถานการณ์ (ปิดการเตือนชั่วคราว)',
+                    'รับทราบสถานการณ์ (ปิดหน้าต่าง)',
                     style: TextStyle(
                       color: Colors.grey.shade400,
                       fontSize: 13,
@@ -921,36 +679,12 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
                     ),
                   ),
                 ),
+              ],
               const SizedBox(height: 12),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildMetricChip({
-    required String title,
-    required String value,
-    required Color color,
-    required IconData icon,
-  }) {
-    return Column(
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 14),
-            const SizedBox(width: 4),
-            Text(title, style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.bold),
-        ),
-      ],
     );
   }
 }

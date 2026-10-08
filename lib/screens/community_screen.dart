@@ -828,12 +828,15 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final currentUserId = auth.user?.uid ?? '';
     final currentUserName = auth.user?.email?.split('@').first ?? 'ผู้ใช้งานทั่วไป';
     final deviceId = context.select<SensorProvider, String>((s) => s.selectedDeviceId);
-    final devices = context.select<SensorProvider, Map<String, DeviceData>>((s) => s.devices);
+    final uniqueDevices = context.select<SensorProvider, List<DeviceData>>((s) => s.uniqueDeviceList);
+    final validIds = uniqueDevices.map((d) => d.id).toSet();
+    final effectiveDeviceId = validIds.contains(deviceId) ? deviceId : (validIds.isNotEmpty ? validIds.first : null);
 
     // Only recreate the stream if the deviceId actually changes
-    if (_lastDeviceId != deviceId || _postsStream == null) {
-      _lastDeviceId = deviceId;
-      _postsStream = _dbRef.orderByChild('deviceId').equalTo(deviceId).onValue;
+    final targetDeviceId = effectiveDeviceId ?? deviceId;
+    if (_lastDeviceId != targetDeviceId || _postsStream == null) {
+      _lastDeviceId = targetDeviceId;
+      _postsStream = _dbRef.orderByChild('deviceId').equalTo(targetDeviceId).onValue;
     }
 
     return Scaffold(
@@ -845,23 +848,30 @@ class _CommunityScreenState extends State<CommunityScreen> {
             Row(
               children: [
                 const Text('อุปกรณ์: ', style: TextStyle(fontSize: 12, color: Colors.blueAccent)),
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    isDense: true,
-                    value: deviceId,
-                    icon: const Icon(Icons.arrow_drop_down, color: Colors.blueAccent, size: 16),
-                    style: const TextStyle(fontSize: 12, color: Colors.blueAccent, fontWeight: FontWeight.bold),
-                    onChanged: (String? newValue) {
-                      if (newValue != null) {
-                        context.read<SensorProvider>().selectDevice(newValue);
-                      }
-                    },
-                    items: devices.values.map((device) {
-                      return DropdownMenuItem<String>(
-                        value: device.id,
-                        child: Text(device.name),
-                      );
-                    }).toList(),
+                Expanded(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isDense: true,
+                      isExpanded: true,
+                      value: effectiveDeviceId,
+                      icon: const Icon(Icons.arrow_drop_down, color: Colors.blueAccent, size: 16),
+                      style: const TextStyle(fontSize: 12, color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                      onChanged: (String? newValue) {
+                        if (newValue != null) {
+                          context.read<SensorProvider>().selectDevice(newValue);
+                        }
+                      },
+                      items: uniqueDevices.map((device) {
+                        return DropdownMenuItem<String>(
+                          value: device.id,
+                          child: Text(
+                            device.name,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
                 ),
               ],
