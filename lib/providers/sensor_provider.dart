@@ -2316,6 +2316,8 @@ ${hasProximityFloodAlert ? '- 🚨 การเตือนภัยในรั
     required double waterFlow,
     bool isLeakage = false,
     required double rainfall,
+    double? risingSpeed,
+    int? forecastRainProb30,
     bool isOnline = true,
   }) {
     if (!_devices.containsKey(deviceId)) {
@@ -2323,11 +2325,14 @@ ${hasProximityFloodAlert ? '- 🚨 การเตือนภัยในรั
     }
     final device = _devices[deviceId]!;
 
-    final double diff = waterLevel - device.waterLevel;
-    if (diff > 0) {
-      device.risingSpeed = diff * (60.0 / 5.0);
-    } else if (diff < 0) {
+    if (risingSpeed != null) {
+      device.risingSpeed = risingSpeed;
+    } else {
       device.risingSpeed = 0.0;
+    }
+
+    if (forecastRainProb30 != null) {
+      device.forecastRainProb30 = forecastRainProb30;
     }
 
     device.lat = lat;

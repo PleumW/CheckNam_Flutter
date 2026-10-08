@@ -143,15 +143,18 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
       severityTitle = 'สถานะ : วิกฤตสูงสุด';
       safetyAdvice = 'วิธีรับมือ: ตัดสะพานไฟ • อพยพขึ้นที่สูงทันที • ห้ามลุยน้ำเชี่ยว';
     } else if (isCritical) {
-      badgeText = 'วิกฤต';
-      categoryBanner = 'ระบบเตือนภัยวิกฤต (Crisis Level)';
-      hazardIcon = Icons.crisis_alert_rounded;
+      badgeText = isEWCritical ? 'วิกฤตล่วงหน้า' : 'วิกฤต';
+      categoryBanner = isEWCritical
+          ? 'ระบบเตือนภัยล่วงหน้าขั้นวิกฤต (Flash Flood Threat)'
+          : 'ระบบเตือนภัยวิกฤต (Crisis Level)';
+      hazardIcon = isEWCritical ? Icons.bolt_rounded : Icons.crisis_alert_rounded;
       if (isEWCritical) {
         severityTitle = 'สถานะ : วิกฤตเตือนภัยล่วงหน้า';
+        safetyAdvice = 'วิธีรับมือ: เสี่ยงน้ำท่วมฉับพลัน • เร่งยกของขึ้นที่สูง • ห้ามสัญจรผ่าน';
       } else {
         severityTitle = 'สถานะ : วิกฤต';
+        safetyAdvice = 'วิธีรับมือ: ยกของขึ้นที่สูง • สับคัตเอาต์ตัดไฟ • ห้ามรถทุกชนิดผ่าน';
       }
-      safetyAdvice = 'วิธีรับมือ: ยกของขึ้นที่สูง • สับคัตเอาต์ตัดไฟ • ห้ามรถทุกชนิดผ่าน';
     } else if (isAdvanceAlert) {
       badgeText = 'เตือนภัยล่วงหน้า';
       categoryBanner = 'ระบบเตือนภัยล่วงหน้า (Early Warning System)';
@@ -486,41 +489,69 @@ class _ProximityAlertScreenState extends State<ProximityAlertScreen>
                       padding: EdgeInsets.symmetric(vertical: 14),
                       child: Divider(color: Colors.white12, height: 1),
                     ),
-                    // 2.1 พยากรณ์ระดับน้ำล่วงหน้า (คำนวณผ่านแอปพลิเคชัน)
+                    // 2.1 พยากรณ์ระดับน้ำล่วงหน้า & ปัจจัยเสี่ยงฝน (Early Warning)
                     Container(
                       margin: const EdgeInsets.only(bottom: 14),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.06),
+                        color: (isAdvanceAlert || isEWCritical)
+                            ? primaryColor.withValues(alpha: 0.12)
+                            : Colors.white.withValues(alpha: 0.06),
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                        border: Border.all(
+                          color: (isAdvanceAlert || isEWCritical)
+                              ? primaryColor.withValues(alpha: 0.5)
+                              : primaryColor.withValues(alpha: 0.3),
+                          width: (isAdvanceAlert || isEWCritical) ? 1.5 : 1.0,
+                        ),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.auto_graph_rounded, color: primaryColor, size: 20),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'พยากรณ์ระดับน้ำล่วงหน้า (ประมวลผลผ่าน App):',
+                          Row(
+                            children: [
+                              Icon(
+                                (isAdvanceAlert || isEWCritical)
+                                    ? Icons.bolt_rounded
+                                    : Icons.auto_graph_rounded,
+                                color: primaryColor,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  (isAdvanceAlert || isEWCritical)
+                                      ? '⚡ ข้อมูลเตือนภัยล่วงหน้า (Sensor & Weather Fusion):'
+                                      : 'พยากรณ์ระดับน้ำล่วงหน้า (ประมวลผลผ่าน App):',
                                   style: TextStyle(
                                     color: primaryColor,
-                                    fontSize: 11,
+                                    fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'อีก 30 นาที: ${targetDevice.predictedWaterLevel30.toStringAsFixed(1)} ซม. | อีก 60 นาที: ${targetDevice.predictedWaterLevel60.toStringAsFixed(1)} ซม. (โอกาสฝน ${targetDevice.forecastRainProb30}%)',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          if (isAdvanceAlert || isEWCritical) ...[
+                            Text(
+                              '• น้ำขึ้นเร็วจากเซนเซอร์: ${targetDevice.risingSpeed >= 0 ? '+' : ''}${targetDevice.risingSpeed.toStringAsFixed(1)} ซม./ชม. (รวมฝน: +${targetDevice.compoundRisingSpeed.toStringAsFixed(1)} ซม./ชม.)\n'
+                              '• โอกาสฝนตกในพื้นที่: ${targetDevice.forecastRainProb30}%\n'
+                              '• คาดการณ์เวลา: ${targetDevice.compoundTimeToDangerText}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11.5,
+                                height: 1.45,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                          ],
+                          Text(
+                            '📈 คาดการณ์ระดับน้ำ: อีก 30 นาที: ${targetDevice.predictedWaterLevel30.toStringAsFixed(1)} ซม. | อีก 60 นาที: ${targetDevice.predictedWaterLevel60.toStringAsFixed(1)} ซม.',
+                            style: TextStyle(
+                              color: (isAdvanceAlert || isEWCritical) ? const Color(0xFFFDE68A) : Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],

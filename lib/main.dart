@@ -210,6 +210,15 @@ class MyApp extends StatelessWidget {
         '/simulator': (context) => const SimulatorScreen(),
         '/device_management': (context) => const DeviceManagementScreen(),
         '/proximity_alert': (context) => const ProximityAlertScreen(),
+        '/alert_early_warning': (context) {
+          final sensor = context.read<SensorProvider>();
+          final triggerDev = sensor.currentDevice ??
+              sensor.devices.values.firstWhere(
+                (d) => d.isEarlyWarning,
+                orElse: () => sensor.devices.values.first,
+              );
+          return ProximityAlertScreen(device: triggerDev);
+        },
       },
     );
   }

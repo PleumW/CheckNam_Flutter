@@ -171,18 +171,20 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
       waterFlow = 15.0;
       rainfall = 20.0;
     } else if (type == 'early_warning') {
-      // เตือนภัยล่วงหน้าน้ำพุ่งเร็ว
-      waterLevel = 32.0;
-      waterFlow = 20.0;
-      rainfall = 30.0;
-      isRainingHeavy = true;
-      risingSpeed = 14.0;
-      rainProb = 85;
+      // เตือนภัยล่วงหน้าน้ำพุ่งเร็ว: ระดับน้ำ 15.0 ซม. (ยังไม่ถึงเกณฑ์วิกฤต 30 ซม.) แต่น้ำขึ้นเร็ว + เสี่ยงฝนตกหนัก
+      waterLevel = 15.0;
+      waterFlow = 15.0;
+      rainfall = 10.0;
+      isRainingHeavy = false;
+      risingSpeed = 12.0;
+      rainProb = 80;
     } else {
       // เฝ้าระวัง: 10.0 – 29.9 ซม. (เซ็นเซอร์ 70.1 – 90.0 ซม.)
       waterLevel = 20.0;
       waterFlow = 8.0;
       rainfall = 5.0;
+      risingSpeed = 0.0;
+      rainProb = 15;
     }
 
     // อัปเดตข้อมูลระดับน้ำใน SensorProvider ทันทีเพื่อให้ตัวอุปกรณ์เปลี่ยนสถานะตามจริง
@@ -193,6 +195,8 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
       waterLevel: waterLevel,
       waterFlow: waterFlow,
       rainfall: rainfall,
+      risingSpeed: risingSpeed,
+      forecastRainProb30: rainProb,
       isOnline: true,
     );
     sensor.selectDevice(devId);

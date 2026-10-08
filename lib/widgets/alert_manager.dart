@@ -31,6 +31,7 @@ class _AlertManagerState extends State<AlertManager> {
   final Map<String, DateTime> _snoozedProximityDevices = {};
   final Map<String, double> _lastTriggeredWaterLevel = {};
   final Map<String, FloodWarningLevel> _lastTriggeredWarningLevel = {};
+  final Map<String, EarlyWarningSeverity> _lastTriggeredEarlyWarningSeverity = {};
   Timer? _periodicCheckTimer;
   DateTime? _temporaryNavigationGracePeriodUntil;
 
@@ -70,6 +71,13 @@ class _AlertManagerState extends State<AlertManager> {
 
   void _checkAlerts() {
     if (!mounted) return;
+
+    final auth = context.read<AuthProvider>();
+    // ไม่อนุญาตให้แสดง Takeover Alert หรือส่งเสียงไซเรน ก่อนที่ผู้ใช้จะ Login เข้าสู่ระบบ
+    if (auth.isLoading || !auth.isAuthenticated) {
+      AudioAlarmService().stopSiren();
+      return;
+    }
 
     final sensor = context.read<SensorProvider>();
     final location = context.read<LocationProvider>();
@@ -128,10 +136,12 @@ class _AlertManagerState extends State<AlertManager> {
           final lastTime = _snoozedProximityDevices[device.id]!;
           final lastLevel = _lastTriggeredWaterLevel[device.id] ?? device.waterLevel;
           final lastWarn = _lastTriggeredWarningLevel[device.id] ?? device.floodWarningLevel;
+          final lastEW = _lastTriggeredEarlyWarningSeverity[device.id] ?? EarlyWarningSeverity.none;
 
-          // หากระดับน้ำเพิ่มขึ้น (>= 1.5 ซม.) หรือสภาวะเตือนภัยยกระดับรุนแรงขึ้น -> ข้ามคูลดาวน์ เด้งเตือนทันที!
+          // หากระดับน้ำเพิ่มขึ้น (>= 1.5 ซม.) หรือสภาวะเตือนภัยยกระดับรุนแรงขึ้น หรือเกิดสภาวะเตือนภัยล่วงหน้าใหม่ -> ข้ามคูลดาวน์ เด้งเตือนทันที!
           final bool hasEscalated = (device.waterLevel - lastLevel) >= 1.5 ||
-              device.floodWarningLevel.index > lastWarn.index;
+              device.floodWarningLevel.index > lastWarn.index ||
+              device.earlyWarningSeverity.index > lastEW.index;
 
           if (!hasEscalated) {
             final Duration elapsed = DateTime.now().difference(lastTime);
@@ -175,6 +185,7 @@ class _AlertManagerState extends State<AlertManager> {
           _snoozedProximityDevices[targetDev.id] = DateTime.now();
           _lastTriggeredWaterLevel[targetDev.id] = targetDev.waterLevel;
           _lastTriggeredWarningLevel[targetDev.id] = targetDev.floodWarningLevel;
+          _lastTriggeredEarlyWarningSeverity[targetDev.id] = targetDev.earlyWarningSeverity;
         });
       }
     }
@@ -193,6 +204,10 @@ class _AlertManagerState extends State<AlertManager> {
 
     // กรณีปิดระบบ Proximity Takeover ไว้ ให้ใช้หน้าต่างเตือนภัยแบบดั้งเดิมเป็น Fallback
     if (!settings.proximityAlertEnabled) {
+      final bool anyEarly = !anyFlood && !anyWarning && sensor.devices.values.any((d) =>
+          d.isEarlyWarning &&
+          distanceCalc.as(LengthUnit.Meter, userLatLng, LatLng(d.lat, d.lng)) <= maxAlertRadiusMeters);
+
       if (anyFlood && !_hasShownFloodAlert && !_isShowingProximityModal && !isInGracePeriod) {
         _hasShownFloodAlert = true;
         _hasShownWarningAlert = false;
@@ -204,6 +219,9 @@ class _AlertManagerState extends State<AlertManager> {
           _showAlert('/alert_warning');
         } else if (!anyWarning) {
           _hasShownWarningAlert = false;
+          if (anyEarly && !_isShowingProximityModal && !isInGracePeriod) {
+            _showAlert('/alert_early_warning');
+          }
         }
       }
     }
@@ -224,6 +242,13 @@ class _AlertManagerState extends State<AlertManager> {
         sensor.selectDevice(device.id);
       } catch (e) {
         debugPrint('Device not found for warning alert');
+      }
+    } else if (routeName == '/alert_early_warning') {
+      try {
+        final device = sensor.devices.values.firstWhere((d) => d.isEarlyWarning);
+        sensor.selectDevice(device.id);
+      } catch (e) {
+        debugPrint('Device not found for early warning alert');
       }
     }
 

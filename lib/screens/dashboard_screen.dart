@@ -2810,6 +2810,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 8),
                   ListTile(
                     leading: const CircleAvatar(
+                      backgroundColor: Color(0xFF9333EA),
+                      child: Icon(Icons.trending_up_rounded, color: Colors.white, size: 20),
+                    ),
+                    title: const Text('⚡ เตือนภัยล่วงหน้าน้ำพุ่งเร็ว (Early Warning)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    subtitle: const Text('ระดับน้ำ 15 ซม. • อัตราน้ำพุ่งเร็ว +12 ซม./ชม. • โอกาสฝน 80% เสี่ยงวิกฤตล่วงหน้า', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    tileColor: Colors.white.withValues(alpha: 0.05),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      final devId = currentDev?.id ?? 'device_1';
+                      final lat = currentDev?.lat ?? 13.7563;
+                      final lng = currentDev?.lng ?? 100.5018;
+
+                      // อัปเดตข้อมูลระดับน้ำใน SensorProvider ทันที (ระดับน้ำ 15 ซม. ยังไม่ท่วม แต่ตรวจพบน้ำขึ้นเร็วเสี่ยงวิกฤตล่วงหน้า)
+                      sensor.simulateDataFromIoT(
+                        deviceId: devId,
+                        lat: lat,
+                        lng: lng,
+                        waterLevel: 15.0,
+                        waterFlow: 15.0,
+                        rainfall: 10.0,
+                        risingSpeed: 12.0,
+                        forecastRainProb30: 80,
+                        isOnline: true,
+                      );
+                      sensor.selectDevice(devId);
+
+                      final testDev = DeviceData(
+                        id: devId,
+                        name: currentDev?.name ?? 'สถานีตรวจวัด IoT',
+                        lat: lat,
+                        lng: lng,
+                        waterLevel: 15.0,
+                        waterFlow: 15.0,
+                        risingSpeed: 12.0,
+                        isRainingHeavy: false,
+                        rainfall: 10.0,
+                        forecastRainProb30: 80,
+                        waterLevelThreshold: 30.0,
+                        isOnline: true,
+                      );
+                      Navigator.pushNamed(context, '/proximity_alert', arguments: testDev);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    leading: const CircleAvatar(
                       backgroundColor: Color(0xFFF97316),
                       child: Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
                     ),
@@ -2830,16 +2877,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         waterLevel: 20.0,
                         waterFlow: 8.0,
                         rainfall: 5.0,
+                        risingSpeed: 0.0,
+                        forecastRainProb30: 15,
                         isOnline: true,
                       );
                       sensor.selectDevice(devId);
 
-                      final testDev = sensor.devices[devId] ?? DeviceData(
+                      final testDev = DeviceData(
                         id: devId,
                         name: currentDev?.name ?? 'สถานีตรวจวัด IoT',
                         lat: lat,
                         lng: lng,
                         waterLevel: 20.0,
+                        waterFlow: 8.0,
+                        risingSpeed: 0.0,
+                        isRainingHeavy: false,
+                        rainfall: 5.0,
+                        forecastRainProb30: 15,
                         waterLevelThreshold: 30.0,
                         isOnline: true,
                       );
@@ -2869,60 +2923,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         waterLevel: 5.0,
                         waterFlow: 5.0,
                         rainfall: 0.0,
+                        risingSpeed: 0.0,
+                        forecastRainProb30: 5,
                         isOnline: true,
                       );
                       sensor.selectDevice(devId);
 
-                      final testDev = sensor.devices[devId] ?? DeviceData(
+                      final testDev = DeviceData(
                         id: devId,
                         name: currentDev?.name ?? 'สถานีตรวจวัด IoT',
                         lat: lat,
                         lng: lng,
                         waterLevel: 5.0,
-                        waterLevelThreshold: 30.0,
-                        isOnline: true,
-                      );
-                      Navigator.pushNamed(context, '/proximity_alert', arguments: testDev);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  ListTile(
-                    leading: const CircleAvatar(
-                      backgroundColor: Color(0xFF9333EA),
-                      child: Icon(Icons.trending_up_rounded, color: Colors.white, size: 20),
-                    ),
-                    title: const Text('⚡ เตือนภัยล่วงหน้าน้ำพุ่งเร็ว (Early Warning)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    subtitle: const Text('อัตราน้ำพุ่งเร็ว +14 ซม./ชม. เสี่ยงน้ำท่วมล่วงหน้า', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    tileColor: Colors.white.withValues(alpha: 0.05),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      final devId = currentDev?.id ?? 'device_1';
-                      final lat = currentDev?.lat ?? 13.7563;
-                      final lng = currentDev?.lng ?? 100.5018;
-
-                      // อัปเดตข้อมูลระดับน้ำใน SensorProvider ทันทีเพื่อให้ตัวอุปกรณ์เปลี่ยนสถานะตามจริง
-                      sensor.simulateDataFromIoT(
-                        deviceId: devId,
-                        lat: lat,
-                        lng: lng,
-                        waterLevel: 32.0,
-                        waterFlow: 20.0,
-                        rainfall: 30.0,
-                        isOnline: true,
-                      );
-                      sensor.selectDevice(devId);
-
-                      final testDev = sensor.devices[devId] ?? DeviceData(
-                        id: devId,
-                        name: currentDev?.name ?? 'สถานีตรวจวัด IoT',
-                        lat: lat,
-                        lng: lng,
-                        waterLevel: 32.0,
-                        risingSpeed: 14.0,
-                        isRainingHeavy: true,
-                        rainfall: 30.0,
-                        forecastRainProb30: 80,
+                        waterFlow: 5.0,
+                        risingSpeed: 0.0,
+                        isRainingHeavy: false,
+                        rainfall: 0.0,
+                        forecastRainProb30: 5,
                         waterLevelThreshold: 30.0,
                         isOnline: true,
                       );
